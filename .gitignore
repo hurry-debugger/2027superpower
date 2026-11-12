@@ -1,0 +1,39 @@
+# Keil build output (OutputDirectory in the uVision project)
+# Already tracked output must also be removed from the index with git rm --cached.
+/MDK-ARM/2026superpower/
+/MDK-ARM/Objects/
+/MDK-ARM/Listings/
+/references/
+/docs/
+/tools/
+/templates/
+
+# Compiler, assembler and linker output
+*.o
+*.obj
+*.d
+*.dep
+*.crf
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.iex
+*.build_log.htm
+
+# Per-user uVision layout and temporary files
+*.uvguix.*
+*.uvgui.*
+*.bak
+*.tmp
+*~
+__pycache__/
+*.pyc
+
+# Other common build directories
+/build/
+/Debug/
+/Release/
