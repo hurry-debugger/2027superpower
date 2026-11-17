@@ -18,11 +18,19 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
+#include "comp.h"
+#include "dac.h"
+#include "dma.h"
+#include "fdcan.h"
 #include "hrtim.h"
+#include "opamp.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bsp_hrtim.h"
 
 /* USER CODE END Includes */
 
@@ -87,10 +95,22 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_HRTIM1_Init();
+  MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
+  MX_ADC1_Init();
+  MX_ADC2_Init();
+  MX_OPAMP1_Init();
+  MX_OPAMP2_Init();
+  MX_OPAMP3_Init();
+  MX_COMP2_Init();
+  MX_COMP3_Init();
+  MX_DAC1_Init();
+  MX_FDCAN2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_HRTIM_WaveformCounterStart(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B);
-  HAL_HRTIM_WaveformOutputStart(&hhrtim1, HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2 | HRTIM_OUTPUT_TB1 | HRTIM_OUTPUT_TB2);
+    /** @brief CubeMX 和采样映射待完成；当前仅关闭四路输出，不启动采样或控制链。 */
+    BspHrtim_DisableOutput();
   /* USER CODE END 2 */
 
   /* Infinite loop */

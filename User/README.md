@@ -1,0 +1,471 @@
+> **2027 工程移植状态（2026-11-12）**
+>
+> 下文保留自 2026superpower 当前工作区，是 26 年代码的来源说明。
+> 已复制 User 模块并登记 Keil；这不代表下文描述的调用链已在 27 年工程运行。
+> 新板采样映射、换算参数、UID/校准记录、PID 和保护参数尚未完成适配。
+> 当前 main 仅关闭四路功率输出，不调用 SuperPower_Init，不启动采样或控制链。
+> 27 年实际状态以 [当前交接](../docs/handoff.md)、[架构](../docs/architecture.md)
+> 和 [硬件及 CubeMX 待办](../docs/hardware.md) 为准。
+
+# 自维护固件目录
+
+当前已有滤波、UID/校准、HRTIM、BSP 数据发布及四环控制模块，均已登记 Keil。
+采样、裁判接收和控制已接入调度；当前采集点尚未校准，逐通道使用默认系数参与闭环，PID参数仍待填写。
+启动保留UID匹配及拟合，ADC1 DMA接入近似平均、过流和控制；Master检查普通错误、发送CAN并启动USART1波形DMA。
+不启用可选低通；上板验证待完成。
+新增代码前必须先阅读根目录 `AGENTS.md` 与 `docs/coding_style.md`，在对话中提交逐文件修改清单，
+获得用户同意后再创建目录、代码或修改构建配置。
+
+## 模块与规划
+
+```text
+User/
+├── App/          # 应用状态、任务编排、保护策略与业务协作
+├── Bsp/          # UID、HRTIM 与采样发布
+├── Calibration/  # 板卡信息、校准记录、拟合算法及理论换算
+├── Procotol/     # USART/CAN BSP、超电协议、裁判类型、CRC 与解析（沿用拼写）
+├── Debug/        # USART1 VOFA+ JustFloat 四环波形
+├── Algorithm/    # 已有 filter.c/.h：整数平均、浮点低通
+└── Config/       # 有明确单位、来源和适用范围的配置
+```
+
+App、Config、Calibration、Procotol 已登记构建；校准记录 C/H 从 Bsp 移至 Calibration，
+板卡信息由 boardinfo.c/.h 管理，ADC 算法与记录由 adc_calibration_record.c/.h 管理。
+C/H 在模块目录中配对存放，文件名小写下划线；UID.c/.h 为用户指定命名例外。
+新模块可以从 `templates/module_template.c/.h`
+提炼结构，但其中的状态接口仅供明确需要状态返回的场景；简单计算直接返回数值或使用 void。
+
+App 可依赖 Bsp、Algorithm、Config 和 Procotol；底层模块不反向包含 App。
+Algorithm 不依赖 HAL；USART/CAN 的 HAL 封装位于 Procotol，Bsp 管理采样与功率输出。
+
+## 手填记录与启动校准
+
+启动调度中的 SuperPower_Init() 调用一次 BoardInfo_Init()，无参数、无返回值。
+boardinfo.c 定义唯一的 BoardInfo_t g_board_info，保存板卡 UID、ID、识别错误和 ADC 校准结果；
+UID_Read(&g_board_info.uid) 直接写入 UID，UID_Equals() 只负责完整 UID 比较。
+UID 层不依赖校准模块，不保存 g_uid，也不创建局部板卡信息副本。
+BoardInfo_Init() 唯一匹配记录后调用 AdcCalibration_FitChannel(id, channel)，直接写入全局通道错误并清除成功通道的未校准位。
+adc_calibration_record.c/.h 保存记录、理论参数、系数缓存、拟合及换算接口，不依赖板卡模块。
+其他消费者只读 g_board_info，不手改诊断结果；校准状态不作为控制输出门槛。
+
+校准流程不需要脚本或 Excel：
+
+1. 查看全局状态的 `uid.word[0..2]`，按相同字序填写记录中的三个 uint32_t。
+2. 在 `adc_calibration_record.h` 增加枚举 ID，放在 `SUPERCAP_COUNT` 之前；
+   在对应 .c 数组使用 `[SUPERCAP_ID_XX]` 指定下标。01 标签对应下标 1，0 号槽位保留为 UNKNOWN。
+3. 每路按 `ADC_CAL_RAW_ROW(通道)` 填平均 ADC 计数，允许小数；按
+   `ADC_CAL_REAL_ROW(通道)` 填仪表实测 V/A，同列为一组。计数定义应与实际采集平均一致，
+   不先用理论公式换成 V/A；电流保留正负号。
+4. 默认每路固定 5 点，缺失位置保留显式 `NAN`；计数和实测值均可能合法为零。
+   C 会把省略的元素补零，程序无法将其与真实零值区分，因此必须保留完整模板逐项替换。
+   调整 `ADC_CAL_POINT_COUNT` 后同步填写每路全部位置，不使用零方差数据。
+5. 重新编译、烧录同一固件；启动时以中心化最小二乘计算 `gain`、`bias`，之后不再拟合。
+
+记录结构只有 UID 和 `[5通道 * 2行][固定点数]` 数组两个成员。全零 UID 槽位不参与匹配。
+当前采集点仍为 NAN 模板，未校准通道使用默认增益和偏置。更换 MCU 后重新绑定，更换采样电阻、
+放大器等模拟前端后重新校准。拟合后的数值校验不等于实板精度验收；不预设残差合格阈值。
+
+无记录或重复匹配时五路使用默认系数；唯一匹配时成功通道使用拟合系数，失败通道保留默认值。
+默认 gain = ADC_<通道>_RATIO，bias = -ADC_<通道>_OFFSET_COUNT * gain，不重复扣零点。
+全局状态记录当前 UID、超电 ID、板卡错误位域、每通道错误位域及未校准通道掩码。
+调试器查看 g_board_info.uncalibrated_channel_mask，低五位按 AdcChannel_e 顺序排列：
+对应位为1表示未校准，0x1F为全部未校准，0为全部成功；仅V_BAT成功时为0x1D。
+掩码非零仅表示存在未校准通道，不生成控制错误，也不通过CAN上报。
+原始计数的 NAN/无穷归入 count_range，实测值的 NAN/无穷归入 value_range；
+已删除恒零的 missing_point、nonfinite 字段，通道错误仍占一个32位字。每路首个错误停止拟合，不静默丢弃坏点。
+负 Bias 合法。未校准不单独阻止闭环，其他故障、前馈条件及恢复等待仍按当前控制实现执行。
+未知或重复 UID 不执行拟合，保留板卡识别原因；拟合失败保留通道原因和对应未校准位。
+底盘、电容校准共用31 V，两路电流校准使用独立的
+ADC_CAL_CURRENT_MAX_A=15 A，不随13 A平均目标参考上限改变；
+电池实测值只要求非负有限，没有43 V或其他物理上限，计数、正增益及可表示性检查保留。
+
+SuperPower_Init先禁用输出，再完成ADC硬件自校准、板卡识别和逐通道拟合，随后启动DMA与计数器。
+BoardInfo_Init仅在启动主线程调用一次，每通道最多拟合一次；不提供运行期重新校准入口。
+初始化后状态和系数保持只读，不与中断换算并发，不默认使用volatile。
+
+## 平均后转换
+
+实际采集位于Bsp/bsp_adc.c：ADC1[40]为十次四通道扫描，ADC2[10]为十次单通道采样。
+两路循环DMA继续写入；CPU通过volatile读取，按ADC1步长4、ADC2步长1累加，
+使用(sum + 10 / 2) / 10四舍五入为五路uint16_t计数，再调用AdcCalibration_Convert。
+不把活动数组强转后交给要求稳定输入的Filter_AverageU16，不复制稳定槽、不配对批次。
+不等待首轮填满，允许读取期间窗口更新和两路窗口交叠，结果是近似十次平均。
+
+Process直接使用g_bsp_adc_feedback中的adc_sum和adc_raw，不再定义局部求和变量或均值数组。
+一个uint32_t adc_sum供ADC1四通道与ADC2顺序复用，每通道开始前清零；
+五路uint16_t adc_raw全部写入后，统一换算到adc_convert，电压单位V、电流单位A。
+工作区仅在不可重入的ADC1 TC采样上下文使用；无valid、发布时间或发布序号。
+接口头文件为Bsp/bsp_adc.h，函数、类型及全局对象名称保持原样。
+采集层不判断数值有效性；控制层保留原有数值与物理保护判断，不读取采集错误。
+反馈不表示校准有效，也不承诺固定批次一致。
+闭环ADC1 TC随后同上下文调用PowerCtrl_Task；开环跳过处理，仅开启固定PWM；Master读取时取得一致快照。
+
+调用接口为：
+
+```c
+BspAdcFeedback_Init();    /* 启动阶段，计数器未运行、输出关闭。 */
+BspAdcFeedback_Process(); /* 仅闭环ADC1全满回调中，随后调用PowerCtrl_Task。 */
+```
+
+AdcCalibration_Convert返回输出数组地址，不代表校准成功；未校准通道使用默认系数，可参与闭环。
+统一公式为raw_count * gain + bias，拟合偏置直接来自实测数据，不再扣一次零点。
+AdcCalibration_ConvertValue的第三参数单位为V/A，与旧计数零点接口不同。
+
+## 可选浮点低通
+
+默认直接使用 `adc_convert` 作为反馈。需要低通时，在换算后执行下列示例，
+由调用方长期保存 `adc_lowpass`，以其作为滤波后的反馈。不同通道不共用历史值。
+首次传入 `first_block = true`，之后传入 false；重新开始采集或丢失历史时重新初始化。
+`alpha` 由调用方按实际反馈周期选定，范围为 [0, 1]；这里不指定截止频率或默认系数。
+
+```c
+#include "filter.h"
+#include "adc_calibration_record.h"
+#include <stdbool.h>
+
+/**
+ * @brief 更新调用方保存的各通道物理量历史，首次直接使用当前换算值。
+ * @pre 两个数组均有 ADC_CHANNEL_COUNT 个元素，alpha 有效；非首次时历史已初始化。
+ * @note 固定反馈周期调用；本示例不在固件默认采样路径中。
+ */
+void Feedback_LowPass(const float adc_convert[ADC_CHANNEL_COUNT],
+                      float adc_lowpass[ADC_CHANNEL_COUNT], float alpha, bool first_block)
+{
+    for(uint32_t channel = 0U; channel < ADC_CHANNEL_COUNT; channel++)
+    {
+        if(first_block)
+        {
+            adc_lowpass[channel] = adc_convert[channel];
+        }
+        else
+        {
+            adc_lowpass[channel] = Filter_LowPass(adc_convert[channel], adc_lowpass[channel], alpha);
+        }
+    }
+}
+```
+
+如需功率，由应用层按对应端口的电压与电流计算，不增加 ADC 功率通道。
+低通会增加反馈延迟；实际系数、内联展开及 40 μs 执行预算须由目标编译器和上板测量确认。
+filter、Bsp/UID、Calibration和运行模块均已登记Keil。采集仅保留两块DMA数组。
+启动后关闭两路HT和ADC2 TC，保留ADC1 TC及两路DMA错误中断。
+不实现采集故障锁存、自定义HAL错误回调或OVR读取；HAL启动失败仍进入Error_Handler。
+采集错误不接入控制保护；没有自动重启、停更或执行超期检测。
+
+## HRTIM 广义占空比底层模块
+
+`Bsp/bsp_hrtim.c/.h` 已提供四个 `void` 接口并登记 Keil；由 PowerCtrlTask 启动，
+闭环由 PowerCtrl 管理输出，开环 ADC1 回调当前每次直接调用开启；运行期均在 ADC1 DMA 上下文。
+当前 CubeMX 已开启 A/B 预装载和复位更新；波形、死区、自举刷新仍待上板验证。
+
+| 接口 | 职责与限制 |
+| --- | --- |
+| `BspHrtim_Init()` | 关闭四路输出，恢复非中间模式；不启动计数器、不改外设配置和比较值 |
+| `BspHrtim_SetGeneralizedDuty(g)` | 限幅、模式迟滞、占空比分配和 CMP1/CMP2 预装载写入；不自动开启输出 |
+| `BspHrtim_EnableOutput()` | 统一开启 TA1/TA2/TB1/TB2；允许开启的依据由调用方检查 |
+| `BspHrtim_DisableOutput()` | 统一关闭四路输出；保留计数器、比较值和迟滞状态 |
+
+`g` 为理想电容侧电压/底盘侧电压，无单位，允许大于 1，必须是有限正数，
+随后限幅到 0.05～10。零、负数、NaN 和无穷不属于支持输入，关断须使用独立接口。
+这不是电流方向命令；应用层负责闭环和保护条件，未校准提示由板卡信息提供，Bsp 不读取 ADC 状态。
+启停 HAL 返回值失败时进入既有 Error_Handler()；接口不新增状态返回值。
+
+本板原理图第 3 页确定 Timer A 接电容侧、Timer B 接底盘侧；CH1 均接下管，CH2 均接上管。
+定义上管占空比 `D_chassis` 和 `D_cap`，理想比例为 `g = D_chassis / D_cap`。
+中间模式使用 `D_chassis = 0.4 * (g + 1)`、`D_cap = 0.4 * (1 / g + 1)`；
+其余模式按下表分配：
+
+| 条件 | 底盘侧上管 D_chassis | 电容侧上管 D_cap |
+| --- | --- | --- |
+| g < 1 | 0.9 * g | 0.9 |
+| g >= 1 | 0.9 | 0.9 / g |
+
+初始为非中间模式，在 `0.9 < g < 1.111` 时进入中间模式；在 `g < 0.8` 或 `g > 1.25`
+时退出。进入边界等于 0.9/1.111 时不进入，退出边界等于 0.8/1.25 时仍保留中间模式。
+完整分配策略和全部数值来源是港科 RM2024 配套 `PowerManager.cpp` 的 `updatePWM()`；
+进入阈值 0.9/1.111 来自源码，不能称为开源报告正文提供的参数。
+它们是用户批准沿用的参考初值，不是本板已验证的额定范围、保护阈值或最小脉宽。
+
+CH1 的中心窗口是下管脉宽，故 `CMP1 = round(P * D_upper / 2)`、`CMP2 = P - CMP1`；
+Timer A 采用 D_cap，Timer B 采用 D_chassis，周期分别读取当前周期寄存器。
+先在局部算完四个值，再临时禁止 A/B 预装载传输、完整写入并恢复原更新禁止位。
+其他 CR1 位保持原值；CMP3、输出事件来源、周期、死区、相位及计数器均不改写。
+这里的上管占空比是理想值，未补偿正死区、驱动延迟与计数量化，不保证实测电压比。
+
+### CubeMX 配置与运行前提
+
+以下为用户本轮通过 CubeMX 生成后核对的要求；代理不直接改写生成配置：
+
+- Timer A/B：`PreloadEnable = HRTIM_PRELOAD_ENABLED`、
+  `ResetUpdate = HRTIM_TIMUPDATEONRESET_ENABLED`、
+  `UpdateGating = HRTIM_UPDATEGATING_INDEPENDENT`。
+- Timer A/B：`UpdateTrigger = HRTIM_TIMUPDATETRIGGER_NONE`、
+  `RepetitionUpdate = HRTIM_UPDATEONREPETITION_DISABLED`；不引入其他自动更新来源，
+  调用方不触发 A/B 软件更新。由各自复位/回卷事件装载新值。
+- 主/A/B 保持相同且固定的周期、向上连续计数。当前周期为 21760 计数，
+  A 由主周期复位，B 由主 CMP1=10880 复位，保留半周期错相。
+- 保留 CH1 在 CMP1 置位、CMP2 复位，CH2 正死区互补、四路高有效及 CMP3 ADC 触发。
+  当前正死区升降沿值均为 15，仍须核对器件、脉宽及实板波形，不能据此声称足够。
+
+两侧分别在下一次自身复位/回卷时生效，相差半周期；不承诺 A/B 同时切换。
+只有一个调用上下文持有 A/B 比较值、更新禁止位及模块私有模式状态，调用不可重入，
+不与其他 HRTIM 公共寄存器或 HAL 句柄写入并发；运行期两次设置至少间隔一个完整 PWM 周期。
+临时禁止装载不是全局临界区，也不提供任意中断抢占关断的故障保护能力。
+
+SuperPower_Init先关闭输出，完成ADC硬件自校准及UID识别/逐通道拟合，再准备DMA/通信、
+调用PowerCtrl_Init初始化四环，最后一次启动三计数器；未校准状态只在板卡信息中记录。
+闭环不生成校准错误，也不因未校准单独阻断输出；PROTECT每周期关断并预置前馈，
+普通错误由1 kHz更新，ADC在错误字为零时累计连续正常控制周期，
+严格超过 500 ms 对应的 12500 次后清零计数并开启输出，不另设装载等待阶段。
+main 不直接开启四路输出。此处是源码调用关系，非硬件运行记录。
+
+## 与生成工程的边界
+
+**禁止直接编辑 `.ioc`；CubeMX 生成代码仅允许修改获批的 `USER CODE BEGIN/END` 区域内部，
+区域外内容及标记行保持原样。** 自维护业务模块优先放在 `User/`。
+放在 User 中的生成文件仍受同样保护，不能通过移动代码规避边界。
+启动和回调可在对应的 USER CODE 区域内接入，仍须先列出具体修改清单并获批。
+后续新增或重命名 C/H 必须把 Keil 分组与头文件路径维护纳入同一清单；
+本目录说明不单独授权写文件或添加运行时调用。
+
+## 应用层控制与运行接入
+
+`App/power_ctrl.c/.h` 提供 `PowerCtrl_Init(void)`、`PowerCtrl_Task(void)`、`PowerCtrl_UpdateErrors(void)`，
+公共实现依次为Init、Task、UpdateErrors，私有ModeSwitch/DutyCalcu执行状态及输出，闭环计算封装在CascadePidCalcu。Init内按Taurus形式逐环调用
+PID_Init，先清零实例；死区为0，不启用电机堵转检测。
+当前电流环、电压环执行计算并参与竞争，能量环与功率环仍被注释，保留现有调试链路。
+两内环调用PID_Calculate_Increase，Output保存完整广义占空比，四环Improve均为NONE。
+内环MaxOut为POWER_CTRL_OUTPUT_DUTY_MAX，应用输出范围为[0.05,29/24]；IntegralLimit参数保留但不参与增量计算。
+增量式Iout为本周期Ki*Err，ITerm为P/I/D合成增量；Ki为零不清累计Output。
+算法层的位置式积分限幅、外部抗饱和、滤波和输出跟踪实现保留，当前内环不调用这些路径。
+Proportional_On_Measurement仍只有原选项位，没有对应实现，不将其描述为已实现功能。
+
+### 编译模式与配置
+
+在 `Core/Inc/main.h` 的 USER CODE Private defines 中二选一：
+
+| 宏 | 行为 |
+| --- | --- |
+| POWER_CTRL_CLOSED_LOOP | 默认；ADC采样、底盘过流和四环，Master普通保护及CAN |
+| POWER_CTRL_OPEN_LOOP | 固定标称50%波形；ADC不运行Process/Task，Master仍更新错误字；须外部隔离驱动 |
+
+main.h保留未选/双选检查。现有模式分支位于调度层启动和ADC回调，Master当前不分支；
+power_ctrl.c/.h保留完整闭环实现，不增加运行期模式或CAN使能。
+配置集中在 `Config/power_ctrl_config.h`。当前没有PWM_READY/PARAMETERS_READY宏；
+PID系数和校准采集点仍待填写；未校准逐通道回退默认系数，其他保护和恢复等待保持。
+开环测量保持初值，Master仍可更新错误字，但开环ADC不读取错误字来关断，必须外部隔离MOS驱动。
+
+### 数据与调用上下文
+
+闭环ADC1 DMA全满回调以优先级0先执行BspAdcFeedback_Process，再执行PowerCtrl_Task。
+高速先检测底盘过流，再检查前馈电压和可达性、读取普通错误，决定状态、PWM及PID。
+前馈无效时只直接保护和清零恢复计数，普通错误归因仍在1 kHz。
+Master优先级1，每1 ms调用PowerCtrl_UpdateErrors，再调用SupercapCan_SendStatus。
+Master只发布错误字，不改PWM/PID；ADC下一周期据错误字保护并清恢复计数。UART优先级3。
+
+慢速检查的第一个短PRIMASK区复制三个电压和错误字，判断与分档计算在区外。
+发布时第二个短临界区合并当前short_circuit，避免ADC刚置位后被旧快照覆盖；
+只发布合并后的错误字，使用原PRIMASK恢复屏蔽状态；状态和恢复计数由ADC处理。
+三电压、错误字及PRIMASK是必要临时快照，不复用仍由ADC读写的控制记录，不新增永久副本。
+state/errors/errclearcnt为中断共享volatile字段；原子性依靠临界区，不能只靠volatile。
+底盘加权累计只由Master更新。CAN另取自己的最小一致快照，编码和发送在区外。
+
+开环ADC每次直接调用固定PWM开启，跳过Process/Task；Master仍检查普通错误并发送CAN。
+该开环路径不据错误字关断，不具备闭环软件保护；本轮仅修正接口注释，调度行为保持不变。
+不保存采样序号、年龄或执行超期状态，采样DMA继续运行但CAN反馈保持初始化值。
+Timer A/B关闭NVIC业务中断，保留PWM与ADC触发。
+
+裁判仍由USART回调直接解析，两类控制命令共用g_judge_rx_update_ms且在CRC前刷新；
+普通保护只据此检查300 ms超时。power_off仅表示机器人状态中的底盘输出位为0。
+
+### 裁判协议与双串口
+
+超电控制板可接收的现有0x0201载荷为17字节，保留bullet_speed_limit；0x0202为14字节。
+本轮不改变协议布局或来源说明，reserved3仍为保留字段，入口功率由本板ADC计算。
+当前解析只接收 0x0201/0x0202，载荷在 CRC8、CRC16 和长度检查后复制到对应全局对象。
+现有复制不提供旧说明中的两类 valid/update_ms 或短 PRIMASK 原子发布；本轮不修改通信代码。
+底盘输出位来自机器人状态载荷；本轮不另存副本、不新增接收状态或改变协议布局。
+接收超时、半帧、载荷一致性及 ARMCC 位域布局仍待另行核对，不能将当前接入解释为通信已完整验证。
+
+Procotol/bsp_usart.c/.h 绑定 USART2 / DMA1_Channel5 普通 RX DMA，115200 baud。
+USART2 IRQ 在 HAL IRQ 前处理 IDLE，以 RxXferSize 减 DMA 剩余计数取得长度，
+AbortReceive 后直接解析并重新启动 DMA；终止或启动失败进入 Error_Handler。
+错误恢复只终止和重启 USART2 接收，不操作 USART1 的调试发送。
+满缓冲、半帧重组及运行期接收故障恢复仍待实板验证，不据此宣称通信全部通过。
+
+### 闭环控制关系
+
+- 完整设计链路按每40 us计算四环，PID系数按调用定义，不按新报文门控或自动补偿裁判更新周期；
+  当前调试代码运行电流环、电压环及电压竞争，能量环与功率环保持注释。
+  能量位置式PID以45 J减裁判缓冲能量形成误差，Output是功率修正u_E，单位W。
+- 入口功率P_in=V_BAT*I_BAT，A端反馈P_A=V_CHASSIS*I_CHASSIS，正值充电、负值放电。
+  A端目标P_A,target=P_lim-P_in+P_A-u_E，P_lim来自robot_status.chassis_power_limit。
+  加回P_A相当于移除入口中已有的超电支路贡献，再计算允许的A端功率；
+  以同周期P_A为反馈，功率PID误差化简为P_lim-P_in-u_E，输出A端目标电流A。
+  正向能量增益下能量不足产生正修正，减去它可减少充电或增加补电；增益仍待整定。
+- ModeSwitch先检查前馈所需电压、V_BAT在[15, ADC_V_BAT_MAX_V]及两路电流各自的ADC理论量程。
+  以`!(有效范围)`拒绝NaN、无穷和极端有限值，异常在开启和PID前直接保护、清恢复计数。
+  电池上界约36.3 V，两路电流约±27.5 A，仅用于数据合理性，不代表器件额定值或采样精度。
+  有效输入保证|P_A|不超过约853 W、|P_in|不超过约999 W，删除重复乘积检查，不新增错误位。
+  A_power_fdb存同周期P_A；total_power_fbd存P_in，是A端功率与底盘用电功率之和的综合反馈，单位W。
+  P_in由V_BAT*I_BAT计算，不包含R18前板载供电自耗，不等同于裁判实测功率。
+  power_target_w只保存A端目标，在CTRL中计算；PROTECT保留初值或上次目标，不用于控制。
+  恢复复位保留本周期前馈及两路功率反馈；新增一个float成员使总功率反馈与目标的含义独立。
+  不增加状态、按帧标志或积分快照，普通错误发布仍由1 kHz归因。
+- 电压最大值统一使用POWER_CTRL_OVERVOLTAGE_V，当前29 V，仍由底盘和电容共用。
+  B端平均目标分界分别为最大电压的20%（5.8 V）和40%（11.6 V）；
+  Vcap<5.8 V时充电4 A、放电0 A；5.8≤Vcap<11.6 V时令x=(Vcap-5.8)/(11.6-5.8)，
+  充电4+9*x A、放电13*x A；Vcap≥11.6 V时双向13 A。两端连续，11.6 V不是硬欠压门槛。
+  这些是分段目标参考，当前功率环仍被注释，不能据此保证实际电流受到该目标限制。
+- A端上下界分别为B端充电参考乘Vcap/Vchassis、负的B端放电参考乘Vcap/Vchassis。
+  不引入效率参数；两个current_*_limit_a成员先作为B端安培工作值，随即原位换算。
+- 电压目标仍为最大电压的95%（当前27.55 V），竞争基础阈值为85%（当前24.65 V）。
+  固定1 V回差由用户指定：严格高于25.65 V允许竞争，严格低于24.65 V退出，区间及边界保持资格。
+  两内环每个CTRL周期各调用一次增量式接口；先限制候选，再独立更新资格并比较完整Output。
+  仅power_pid.Output > 0.0f、资格允许且电压候选严格更小时选择电压环，其余及相等时选择电流环。
+  资格更新不受充放电请求或环间胜负影响；正目标表示充电请求，不代表实测方向。
+- 两环前馈均为本周期实测V_CAP/V_CHASSIS。进入CTRL时复位四环，电流环Output/Last_Output预置前馈；
+  随后的首周期计算一次增量并限幅。电压环刚接管或电流环刚接回时，接管环Output改为前馈+已算出的ITerm，
+  随后限幅并对齐Last_Output，不清误差历史、不重复计算。连续控制保留累计值，不再次叠加前馈。
+  不再在电压胜出后完整复位电流PID；未采用的内环也继续计算，未启用冻结或输出跟踪。
+  竞争按预置前候选只判定一次，预置后不再竞争；切换周期实际输出可能不同于比较候选，不承诺无扰切换。
+- 新增POWER_CTRL_CHASSIS_NOMINAL_VOLTAGE_V=24.0f，来源为用户指定的标称底盘电压，非实时采样。
+  POWER_CTRL_OUTPUT_DUTY_MAX=POWER_CTRL_OVERVOLTAGE_V/POWER_CTRL_CHASSIS_NOMINAL_VOLTAGE_V，当前29/24≈1.20833。
+  两内环累计Output、最终占空比及PROTECT预置均限制在[0.05,29/24]，不再使用前馈±0.2修正范围。
+  原始前馈仍按(0.05,10)门控；超过输出上限但仍在该区间内不因此直接保护，底层HRTIM范围保持0.05～10。
+  保护电压基准仍为29 V；修改最大电压时须同步相关注释与文档，固定1 V回差及标称24 V保持。
+- 四环Improve均为NONE；两内环MaxOut为新输出上限，库内仍分别对ITerm和Output作对称限幅，
+  应用层再按正下界限幅并对齐Last_Output。Iout为单次Ki*Err，内环IntegralLimit参数保留但不参与计算。
+  不启用位置式条件积分、滤波或输出跟踪；Ki为零不清累计输出，零误差不强制输出归零。
+  位置式普通/受限接口和PID_TrackOutput保持，当前两内环不调用，不据此承诺控制权切换无跳变。
+- 复用generalized_duty：ModeSwitch先保存原始前馈供门控、目标限流和接管预置，最终直接保存选中环Output。
+  voltage_compete_enabled仍以uint8_t保存迟滞资格；新增uint8_t voltage_loop_active记录上周期实际控制权，0电流、1电压。
+  资格不能代表是否获胜，也不能由区间内当前电压推导；控制权历史用于避免连续周期重复预置。
+  两者仅ADC读写，启动依赖全局零初始化，恢复ResetLoops清零，不新增锁、volatile、局部工作变量或候选副本。
+  恢复后首个CTRL周期重新判断资格。功率环仍被注释，Output初始化及恢复为零，未经调试器赋值不满足充电门控；
+  电压环系数仍全为零，保留前馈不代表具备已整定的电压调节能力。
+- 13 A只约束目标；电压覆盖可能使实际A端电流更负，纯min竞争不能保证实际B端平均电流。
+  15 A峰值仅记录在POWER_CTRL_CAP_CURRENT_PEAK_A，未实现B端峰值检测或保护。
+- App只调用现有BspHrtim接口，逻辑A/chassis对应本板Timer B，电容对应Timer A；
+  PWM频率、桥臂映射、ADC触发、DMA和中断优先级均保持。
+- P_in不含R18前板载供电自耗，不能直接视为裁判计量值；接线、采样方向及动态误差待实测。
+
+### 两状态与故障时间
+
+运行状态仍为PROTECT=0、CTRL=1，CAN显式映射NORMAL=0、PROTECT=1。
+恢复errclearcnt只在PROTECT、错误字为零且前馈可用时按ADC周期递增，第12500次保持保护，
+第12501次清零、复位四环并单次开启。ADC读到错误、检测过流或前馈不可用均清零等待；
+持续CTRL不反复开启，PROTECT不运行PID并关闭输出；前馈预置限于[0.05,29/24]，NaN由底层跳过寄存器写入。
+
+| 内部标志 | 条件及频率 | 解除方式 |
+| --- | --- | --- |
+| cap_voltage | 电容不满足[2.9,29] V，含NaN/无穷；下界为最大电压×0.1f，1 kHz | 欠压须外部充电达到下界后清零 |
+| chassis_voltage | 底盘不满足[15,29] V，或分级累计>=300；1 kHz | 条件解除后清零 |
+| bat_voltage | 电池不满足[15, ADC_V_BAT_MAX_V] V，含无效数值；1 kHz | 正常后清零 |
+| power_off | 裁判底盘输出位为0；1 kHz | 恢复许可后清零 |
+| referee | 共用接收时间戳年龄>300 ms；1 kHz | 超时解除后清零 |
+| short_circuit | 仅abs(I_CHASSIS)>30 A；25 kHz | 锁存至MCU复位，不自动重启 |
+
+1 kHz分级累计使用同一个chassis_overvoltage_cnt，不另存档位/步长。
+有效底盘电压按>30/+125、>29/+25、>28/+5、>27/+1降序判断，>=300饱和；
+跨档保留，不高于27 V时清零，包括低于15 V的下电。固定档从零分别需3/12/60/300次检查，
+名义约3/12/60/300 ms；当前硬上限29 V使>29/>30 V档在有效区间内不可达，分档常量仍保持。
+29 V本身有效且每次累计5，严格超过29 V才立即置硬过压；
+15 V本身有效。无效电压仍保护，NaN不满足累计清零条件。
+电容最低电压由POWER_CTRL_CAP_MIN_VOLTAGE_V定义为POWER_CTRL_OVERVOLTAGE_V×0.1f，当前2.9 V。
+电容有效区间两端均接受；严格低于下界、超过上界或数值无效时置cap_voltage。
+欠压期间闭环不主动充电，须外部充电达到下界；其余条件连续正常约500 ms后恢复。
+11.6 V仍只是电流目标分界；电池15 V和ADC理论量程上界均有效，不恢复43 V上限。
+控制路径禁止与FLT_MAX比较，使用上述有效范围；校准中的旧可表示性比较未在本轮修改。
+普通故障解除后仍须等待约500 ms，短路锁存始终阻止恢复。
+
+普通错误由Master发布错误字，PWM由下一次ADC控制关断；短路和前馈失效在本次ADC控制关断。
+电容欠压只由Master 1 kHz检查；闭环ADC下一周期读取错误字，清恢复计数并关闭输出。
+当前ModeSwitch直接计算原始Vcap/Vchassis，再检查错误字和前馈开区间(0.05,10)，
+没有旧说明中的除法前电压范围预检；本轮不增加该预检或主动预充流程。
+24 V底盘下1.2 V对应前馈下限0.05；该电容电压同时低于2.9 V欠压门槛，不能据前馈条件解除欠压保护。
+前馈可达性不代表最小有效脉宽已完成实板验证。
+没有参数就绪门槛、采样误差阈值或驱动电源监测，不把缺少反馈的条件伪装成已实现保护。
+短路不检查电压和校准；正负无穷电流会触发绝对值比较，NaN不会触发，不新增通用数值位。
+开环不执行这些保护。删除电容/电池连续计数和旧补满逻辑，只保留底盘加权与恢复两类历史。
+
+13 A平均目标、15 A峰值设计约束和独立15 A校准范围分开管理；ADC换算保持。
+底盘关断阈值仍由450 W/15 V派生为30 A。
+30 A高于标称理想采样范围±27.5 A，可检测性、关断及防反灌待实板验证。
+恢复时长取决于实际ADC回调频率，超期或事件合并会改变物理等待时间；
+裁判超时使用HAL_GetTick与共用接收时间戳，不建立另一份恢复时钟。
+
+### 参考工程计时核查（静态配置，不是实板测量）
+
+港科 RM2024 `Core/Src/main.c:133-150`：8 MHz HSE /1 *9=72 MHz，APB1 /2，
+定时器时钟乘2回到72 MHz；`Core/Src/tim.c:121-123`：PSC=7199、ARR=9，
+T=(7199+1)*(9+1)/72MHz=1 ms。`PowerManager.cpp:1014-1018` 的 TIM2 IRQ
+调用 handleErrorState；563-599 行故障时反复置 restartCoolDown=500，无故障递减，
+减为零后的下一次调用允许输出，名义约500 ms（存在一个调度边界），并非当前Task周期。
+本工程按当前25 kHz控制周期独立换算500 ms对应的12500次，并采用严格大于判定，不移植参考工程时钟。
+
+旧工程 `Src/main.c:157-175`：16 MHz /4 *85 /2=170 MHz，APB1 /1；
+`Src/tim.c:113-115` 的 TIM6 PSC=169、ARR=1999，周期2 ms。
+`Src/stm32g4xx_it.c:360-365` 调用 power_ctrl_task；其中 power_error_check_advanced
+在 app/power_ctrl_task.c:42 被注释，故旧保护检测不能称为实际启用。
+若恢复该调用，381-429 行计数及大于10/1的判断单位是调用次数，首次置位在第11/2次，
+分别名义22/4 ms，而不是10/1 ms。TIM7 的电流计算周期是20 us，也不是保护检测周期。
+旧版重启计数由同一2 ms任务推动，且故障时不清零，不能照搬其500次为500 ms。
+
+此前已按用户指示删除 `tools/test_adc_feedback.py`；本轮未删除文件，旧测试命令不再适用。
+本轮仅做静态与语法检查，不执行专项运行测试、固件构建或上板验证；优化算法后续启用时的行为、临界区及完整控制路径耗时待测。
+
+## 经典 CAN 通信
+
+Procotol/bsp_can 适配 Taurus 的 Fdcanx_Init/Fdcanx_Transmit，仅使用 FDCAN1。
+双ID过滤单个0x010，拒绝不匹配、扩展和远程帧；接收经典标准数据帧DLC为1～8，
+短帧补零后交回调。发送固定8字节，忙或失败只计数丢弃，不等待和重试。
+初始化回调先注册再启用通知和启动；RX单次最多读硬件FIFO深度3帧。
+
+| ID | 数据 |
+| --- | --- |
+| TX 0x100 | bytes0～3电容电压V、bytes4～7底盘电流A，小端IEEE754 binary32 |
+| TX 0x101 | byte0旧故障位，byte1旧状态，bytes2～7固定零 |
+| RX 0x010 | byte0仅记录旧协议原始值，不参与超电开闭环运行模式控制 |
+
+旧故障位仅映射bit0电容过压、bit2底盘过压、bit3电池欠压、bit7裁判故障。
+本轮只发送CTRL/NORMAL=0、PROTECT=1，等待恢复也发送PROTECT，不再发送旧RESTART=2。
+线上状态与内部枚举编号不同，不能直接复制内部状态。短路等其他内部故障只通过PROTECT反映，
+旧故障字节不扩展，无法表达完整错误；不新增CAN失联保护。
+Master在保存/恢复PRIMASK的短临界区复制电压、电流、错误和状态，编码和HAL发送在临界区外。
+底层发送取自Taurus，线上格式取自用户指定旧SuperCap2026_7_17；不导入旧控制阈值或FD路径。
+
+## 调度配置与验证边界
+
+Master底层计数250 kHz、周期4 μs，重复计数249，通过MREP产生1 kHz普通保护/CAN中断。
+Timer A/B的NVIC关闭；当前生成配置仍保留Timer B外设REP请求，不产生CPU业务回调，代理不改配置。
+NVIC：ADC1 DMA=0，ADC2 DMA和Master=1，USART1/UART DMA/FDCAN=3，SysTick=15。
+当前生成源码 USART2 IRQ 仍为0，须由用户在CubeMX改为3并重新生成；本轮不改生成配置。
+周期、请求、预装载和优先级由CubeMX配置和静态审查保证，SuperPower_Init不重复核对。
+裁判为USART2/DMA1_Channel5普通接收，调试为USART1/DMA1_Channel4普通发送；不在运行期复查固定绑定。
+CAN仅在BSP配置过滤器时保留容量边界检查。g_supercap_can记录底盘模式及发送忙/失败次数。
+采样、数值、500 ms恢复、CAN帧和最坏40 μs执行时间均待上板验证。
+接受活动数组近似平均；DMA停更可能保持最后输出，超期可能合并事件并改变控制间隔，均无独立关断机制。
+
+## VOFA+ 调试波形
+
+USART1 TX=PB6、RX=PB7，1152000 baud、8N1；连接USB串口的RX与共地后，
+在VOFA+选择JustFloat协议。裁判USART2 TX=PB3、RX=PB4，115200 baud，双串口可同时工作。
+Master 1 kHz在普通保护和CAN发送后调用DataWave(&huart1)。
+
+调试器修改volatile DebugWave_e g_debug_wave，默认DEBUG_WAVE_CURRENT。
+
+| 枚举值 | 通道1～3 | 通道4～6 | 实际帧长 |
+| --- | --- | --- | --- |
+| DEBUG_WAVE_OFF=0 | 不启动新帧 | 无 | 0 |
+| DEBUG_WAVE_CURRENT=1 | 电流目标A、反馈A、完整累计占空比 | 无 | 16字节 |
+| DEBUG_WAVE_CURRENT_VOLTAGE=2 | 电流目标A、反馈A、完整累计占空比 | 电压目标V、反馈V、完整累计占空比 | 28字节 |
+| DEBUG_WAVE_POWER=3 | 功率目标W、反馈W、输出电流A | 无 | 16字节 |
+| DEBUG_WAVE_ENERGY=4 | 能量目标J、反馈J、输出功率修正W | 无 | 16字节 |
+
+数据直接来自对应PID的Target、Measure、Output；功率和能量档独立打印，非法枚举值不启动新帧。
+内环Output为完整累计占空比，CTRL只采用选中环；保护及开环记录可能为初值或旧值，切换档位后同步调整上位机标签。
+只保留一个128字节发送缓冲区，按实际通道数发送并追加00 00 80 7F帧尾，不能把128字节全部发送。
+DMA忙时跳帧且不改缓冲区；关闭档不打断已启动的DMA。仅快照字段时保存/恢复PRIMASK，
+帧尾及HAL发送在区外执行。私有s_data_scope.tx_error_count记录DMA启动失败，调试器可观察。
+最大28字节在线路上理论约243 μs；临界区、控制中断延迟和实际帧率尚未上板测量。
