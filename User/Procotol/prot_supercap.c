@@ -41,8 +41,8 @@ void SupercapCan_SendStatus(void)
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
     __DMB();
-    cap_voltage_v = g_bsp_adc_feedback.adc_convert[V_CAP];
-    chassis_current_a = g_bsp_adc_feedback.adc_convert[I_CHASSIS];
+    cap_voltage_v = adc_fdb.B.V;
+    chassis_current_a = g_bsp_adc_legacy_chassis_current_a;
     errors = g_power_ctrl.errors;
     state = g_power_ctrl.state;
     __DMB();

@@ -30,6 +30,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bsp_adc.h"
 #include "bsp_hrtim.h"
 
 /* USER CODE END Includes */
@@ -109,8 +110,13 @@ int main(void)
   MX_DAC1_Init();
   MX_FDCAN2_Init();
   /* USER CODE BEGIN 2 */
-    /** @brief CubeMX 和采样映射待完成；当前仅关闭四路输出，不启动采样或控制链。 */
+    /* 关闭功率输出后准备双 ADC，Master 仅提供采样触发和重复中断。 */
     BspHrtim_DisableOutput();
+    BspAdcFeedback_Init();
+    if(HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER) != HAL_OK)
+    {
+        Error_Handler();
+    }
   /* USER CODE END 2 */
 
   /* Infinite loop */

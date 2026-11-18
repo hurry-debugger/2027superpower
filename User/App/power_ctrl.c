@@ -76,16 +76,16 @@ void PowerCtrl_Task(void)
 static void PowerCtrl_ModeSwitch(void)
 {
     /* 过流仍先于前馈计算，命中本周期关断并锁存至 MCU 复位。 */
-    if(fabsf(g_bsp_adc_feedback.adc_convert[I_CHASSIS]) > POWER_CTRL_CHASSIS_CURRENT_MAX_A)
+    if(fabsf(g_bsp_adc_legacy_chassis_current_a) > POWER_CTRL_CHASSIS_CURRENT_MAX_A)
         g_power_ctrl.errors.bits.short_circuit = 1U;
         
-    g_power_ctrl.errors.bits.cap_voltage = !(g_bsp_adc_feedback.adc_convert[V_CAP] >= POWER_CTRL_CAP_MIN_VOLTAGE_V 
-                                                && g_bsp_adc_feedback.adc_convert[V_CAP] <= POWER_CTRL_OVERVOLTAGE_V);
+    g_power_ctrl.errors.bits.cap_voltage = !(adc_fdb.B.V >= POWER_CTRL_CAP_MIN_VOLTAGE_V
+                                                && adc_fdb.B.V <= POWER_CTRL_OVERVOLTAGE_V);
 
-    g_power_ctrl.generalized_duty = g_bsp_adc_feedback.adc_convert[V_CAP]
-        / g_bsp_adc_feedback.adc_convert[V_CHASSIS];
-    g_power_ctrl.A_power_fdb = g_bsp_adc_feedback.adc_convert[V_CHASSIS]
-        * g_bsp_adc_feedback.adc_convert[I_CHASSIS];
+    g_power_ctrl.generalized_duty = adc_fdb.B.V
+        / adc_fdb.A.V;
+    g_power_ctrl.A_power_fdb = adc_fdb.A.V
+        * g_bsp_adc_legacy_chassis_current_a;
 
     if(g_power_ctrl.errors.all != 0U
     || !(g_power_ctrl.generalized_duty > BSP_HRTIM_GENERALIZED_DUTY_MIN&&g_power_ctrl.generalized_duty < BSP_HRTIM_GENERALIZED_DUTY_MAX))
@@ -169,8 +169,8 @@ static void PowerCtrl_CascadePidCalcu(void)
 
 //     /* A 端功率与底盘用电功率之和的综合反馈，单位 W；由入口 V_BAT*I_BAT 计算。
 //     * 入口采样未包含 R18 前板载供电自耗，不等同于裁判实测功率。 */
-//    g_power_ctrl.total_power_fbd = g_bsp_adc_feedback.adc_convert[V_BAT]
-//        * g_bsp_adc_feedback.adc_convert[I_BAT];
+//    g_power_ctrl.total_power_fbd = adc_fdb.ref.V
+//        * adc_fdb.ref.I;
 //        
 //    /* P_A,target = P_lim - P_in + P_A - u_E；加回 P_A 是移除已计入入口的超电支路，
 //     * 再计算允许的 A 端功率。以同一 P_A 为反馈，误差化简为 P_lim - P_in - u_E。
@@ -192,13 +192,13 @@ static void PowerCtrl_CascadePidCalcu(void)
      *       不再使用前馈上的 ±0.2 修正边界，前馈仅在进入 CTRL 或控制权切换时预置。
      */
     PID_Calculate_Increase(&g_power_ctrl.voltage_pid,
-        g_bsp_adc_feedback.adc_convert[V_CAP], POWER_CTRL_CAP_TARGET_V);
+        adc_fdb.B.V, POWER_CTRL_CAP_TARGET_V);
     OUTPUT_LIMIT(g_power_ctrl.voltage_pid.Output,
                  POWER_CTRL_OUTPUT_DUTY_MAX, BSP_HRTIM_GENERALIZED_DUTY_MIN);
     g_power_ctrl.voltage_pid.Last_Output = g_power_ctrl.voltage_pid.Output;
 
     PID_Calculate_Increase(&g_power_ctrl.current_pid,
-        g_bsp_adc_feedback.adc_convert[I_CHASSIS], g_power_ctrl.power_pid.Output);
+        g_bsp_adc_legacy_chassis_current_a, g_power_ctrl.power_pid.Output);
     OUTPUT_LIMIT(g_power_ctrl.current_pid.Output,
                  POWER_CTRL_OUTPUT_DUTY_MAX, BSP_HRTIM_GENERALIZED_DUTY_MIN);
     g_power_ctrl.current_pid.Last_Output = g_power_ctrl.current_pid.Output;
@@ -210,10 +210,10 @@ static void PowerCtrl_CascadePidCalcu(void)
      */
     if(g_power_ctrl.voltage_compete_enabled != 0U)
     {
-        if(g_bsp_adc_feedback.adc_convert[V_CAP] < POWER_CTRL_VOLTAGE_COMPETE_V)
+        if(adc_fdb.B.V < POWER_CTRL_VOLTAGE_COMPETE_V)
             g_power_ctrl.voltage_compete_enabled = 0U;
     }
-    else if(g_bsp_adc_feedback.adc_convert[V_CAP] > POWER_CTRL_VOLTAGE_COMPETE_ENTER_V)
+    else if(adc_fdb.B.V > POWER_CTRL_VOLTAGE_COMPETE_ENTER_V)
     {
         g_power_ctrl.voltage_compete_enabled = 1U;
     }
@@ -271,9 +271,9 @@ void PowerCtrl_UpdateErrors(void)
 
     __disable_irq();
     __DMB();
-    cap_voltage_v = g_bsp_adc_feedback.adc_convert[V_CAP];
-    chassis_voltage_v = g_bsp_adc_feedback.adc_convert[V_CHASSIS];
-    bat_voltage_v = g_bsp_adc_feedback.adc_convert[V_BAT];
+    cap_voltage_v = adc_fdb.B.V;
+    chassis_voltage_v = adc_fdb.A.V;
+    bat_voltage_v = adc_fdb.ref.V;
     errors = g_power_ctrl.errors;
     __DMB();
     __set_PRIMASK(primask);
@@ -340,19 +340,19 @@ static void PowerCtrl_CalculateCurrentLimits(void)
 {
     /* 低压时限制从电容提取功率，仍允许较小充电目标；5.8～11.6 V 连续恢复双向能力。
      * 两个成员先作 B 端安培工作值，再原位换算为 A 端边界，避免另存同义副本。 */
-    if(g_bsp_adc_feedback.adc_convert[V_CAP] < POWER_CTRL_CAP_LOW_VOLTAGE_V)
+    if(adc_fdb.B.V < POWER_CTRL_CAP_LOW_VOLTAGE_V)
     {
         g_power_ctrl.current_upper_limit_a = POWER_CTRL_CAP_LOW_CHARGE_CURRENT_A;
         g_power_ctrl.current_lower_limit_a = 0.0f;
     }
-    else if(g_bsp_adc_feedback.adc_convert[V_CAP] < POWER_CTRL_CAP_NORMAL_VOLTAGE_V)
+    else if(adc_fdb.B.V < POWER_CTRL_CAP_NORMAL_VOLTAGE_V)
     {
         g_power_ctrl.current_upper_limit_a = POWER_CTRL_CAP_LOW_CHARGE_CURRENT_A
             + (POWER_CTRL_CAP_CURRENT_MAX_A - POWER_CTRL_CAP_LOW_CHARGE_CURRENT_A)
-                * (g_bsp_adc_feedback.adc_convert[V_CAP] - POWER_CTRL_CAP_LOW_VOLTAGE_V)
+                * (adc_fdb.B.V - POWER_CTRL_CAP_LOW_VOLTAGE_V)
                 / (POWER_CTRL_CAP_NORMAL_VOLTAGE_V - POWER_CTRL_CAP_LOW_VOLTAGE_V);
         g_power_ctrl.current_lower_limit_a = -POWER_CTRL_CAP_CURRENT_MAX_A
-            * (g_bsp_adc_feedback.adc_convert[V_CAP] - POWER_CTRL_CAP_LOW_VOLTAGE_V)
+            * (adc_fdb.B.V - POWER_CTRL_CAP_LOW_VOLTAGE_V)
             / (POWER_CTRL_CAP_NORMAL_VOLTAGE_V - POWER_CTRL_CAP_LOW_VOLTAGE_V);
     }
     else

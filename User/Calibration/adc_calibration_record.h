@@ -1,6 +1,6 @@
 /**
  * @file adc_calibration_record.h
- * @brief 超电 ID、手填记录、ADC 理论参数、启动拟合及运行期物理量换算。
+ * @brief 超电 ID、手填记录、启动拟合及运行期物理量换算。
  * @note 本文件只定义类型、宏及声明；记录、系数缓存及函数实现在对应 .c 中。
  */
 
@@ -8,6 +8,7 @@
 #define SUPERPOWER_ADC_CALIBRATION_RECORD_H
 
 #include "UID.h"
+#include "bsp_adc.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -36,17 +37,6 @@ typedef enum
     SUPERCAP_COUNT          /**< 数组槽位数，含 0 号保留槽位；新增 ID 放在它之前。 */
 } SupercapId_e;
 
-/** @brief adc_raw、adc_convert 和校准记录共用的五路通道索引。 */
-typedef enum
-{
-    V_CHASSIS = 0,    /**< 底盘电压 V，ADC1 Rank 1 / IN1 / PA0。 */
-    V_BAT,            /**< 电池电压 V，ADC1 Rank 2 / IN3 / PA2。 */
-    I_BAT,            /**< 电池电流 A，ADC1 Rank 3 / IN5 / PB14。 */
-    I_CHASSIS,        /**< 底盘电流 A，ADC1 Rank 4 / IN12 / PB1。 */
-    V_CAP,            /**< 电容电压 V，ADC2 Rank 1 / IN2 / PA1，生成标签 V_CUP。 */
-    ADC_CHANNEL_COUNT /**< 数组元素数，不是有效通道。 */
-} AdcChannel_e;
-
 /**
  * @brief 每块超电的完整 UID 与原始校准记录，严格保留两个成员。
  * @note 同列的 ADC 计数和实测值配对；每路必须填满固定点数。
@@ -61,75 +51,6 @@ typedef struct
 
 /** @brief 在 .c 中按超电 ID 指定下标初始化；固件运行期间只读。 */
 extern const AdcCalibrationRecord_t g_adc_calibration_records[SUPERCAP_COUNT];
-
-/**
- * @note 参数依据用户提供的 Super-capacitor control.pdf 第 3～5 页。
- *       图纸为 INA240A2，用户于 2026-11-06 确认实装 INA240A1（20 V/V）。
- *       换算采用 4095 分母，采样精度、实板校准和量化误差仍待验证。
- */
-/* ==================== 标称硬件参数 ==================== */
-
-/** @brief ADC 的 VREF+ 标称电压，单位 V；原理图 U5 REF3033，实测值待标定。 */
-#define ADC_REFERENCE_V (3.3f)
-/** @brief 12 位右对齐 ADC 的满量程计数，不启用硬件过采样。 */
-#define ADC_FULL_SCALE_COUNT (4095U)
-/** @brief 底盘分压还原倍数，无量纲；R26=13 kΩ、R34=1 kΩ。 */
-#define ADC_V_CHASSIS_DIVIDER_RATIO (14.0f)
-/** @brief 电池分压还原倍数，无量纲；R38=10 kΩ、R46=1 kΩ。 */
-#define ADC_V_BAT_DIVIDER_RATIO (11.0f)
-/** @brief 电容分压还原倍数，无量纲；R27=10 kΩ、R71=1 kΩ。 */
-#define ADC_V_CAP_DIVIDER_RATIO (11.0f)
-/** @brief U7/U8 实装 INA240A1 的增益，单位 V/V；用户 2026-11-06 确认，TI 手册为 20。 */
-#define ADC_CURRENT_SENSE_GAIN (20.0f)
-/** @brief R3/R18 电流采样电阻，单位 Ω。 */
-#define ADC_CURRENT_SHUNT_OHM (0.003f)
-/** @brief 电池电流通道零电流输出，单位 V；U9 参考的一半，独立于 ADC 的 U5 参考。 */
-#define ADC_I_BAT_ZERO_V (1.65f)
-/** @brief 底盘电流通道零电流输出，单位 V；标称值，后续可独立标定。 */
-#define ADC_I_CHASSIS_ZERO_V (1.65f)
-/* ==================== 各通道转换参数 ==================== */
-
-/** @brief 底盘电压转换系数，单位 V/计数。 */
-#define ADC_V_CHASSIS_RATIO \
-    (ADC_REFERENCE_V * ADC_V_CHASSIS_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 电池电压转换系数，单位 V/计数。 */
-#define ADC_V_BAT_RATIO (ADC_REFERENCE_V * ADC_V_BAT_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 电容电压转换系数，单位 V/计数。 */
-#define ADC_V_CAP_RATIO (ADC_REFERENCE_V * ADC_V_CAP_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 电池电流转换系数，单位 A/计数。 */
-#define ADC_I_BAT_RATIO \
-    (ADC_REFERENCE_V / ADC_FULL_SCALE_COUNT / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
-/** @brief 底盘电流转换系数，单位 A/计数。 */
-#define ADC_I_CHASSIS_RATIO \
-    (ADC_REFERENCE_V / ADC_FULL_SCALE_COUNT / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
-
-/** @brief 底盘电压零点，单位计数；标称无偏置。 */
-#define ADC_V_CHASSIS_OFFSET_COUNT (0.0f)
-/** @brief 电池电压零点，单位计数；标称无偏置。 */
-#define ADC_V_BAT_OFFSET_COUNT (0.0f)
-/** @brief 电容电压零点，单位计数；标称无偏置。 */
-#define ADC_V_CAP_OFFSET_COUNT (0.0f)
-/** @brief 电池电流零点，单位计数；标称 2047.5，不提前取整。 */
-#define ADC_I_BAT_OFFSET_COUNT (ADC_I_BAT_ZERO_V * ADC_FULL_SCALE_COUNT / ADC_REFERENCE_V)
-/** @brief 底盘电流零点，单位计数；允许与电池通道分别标定。 */
-#define ADC_I_CHASSIS_OFFSET_COUNT (ADC_I_CHASSIS_ZERO_V * ADC_FULL_SCALE_COUNT / ADC_REFERENCE_V)
-
-/** @brief 底盘电压 ADC 理论量程上限，单位 V；由分压比和 ADC 满量程推导。 */
-#define ADC_V_CHASSIS_MAX_V ((ADC_FULL_SCALE_COUNT - ADC_V_CHASSIS_OFFSET_COUNT) * ADC_V_CHASSIS_RATIO)
-/** @brief 电池电压 ADC 理论量程上限，单位 V；由分压比和 ADC 满量程推导。 */
-#define ADC_V_BAT_MAX_V ((ADC_FULL_SCALE_COUNT - ADC_V_BAT_OFFSET_COUNT) * ADC_V_BAT_RATIO)
-/** @brief 电容电压 ADC 理论量程上限，单位 V；由分压比和 ADC 满量程推导。 */
-#define ADC_V_CAP_MAX_V ((ADC_FULL_SCALE_COUNT - ADC_V_CAP_OFFSET_COUNT) * ADC_V_CAP_RATIO)
-/** @brief 电池电流 ADC 理论量程下限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_BAT_MIN_A (-ADC_I_BAT_OFFSET_COUNT * ADC_I_BAT_RATIO)
-/** @brief 电池电流 ADC 理论量程上限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_BAT_MAX_A ((ADC_FULL_SCALE_COUNT - ADC_I_BAT_OFFSET_COUNT) * ADC_I_BAT_RATIO)
-/** @brief 底盘电流 ADC 理论量程下限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_CHASSIS_MIN_A (-ADC_I_CHASSIS_OFFSET_COUNT * ADC_I_CHASSIS_RATIO)
-/** @brief 底盘电流 ADC 理论量程上限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_CHASSIS_MAX_A \
-    ((ADC_FULL_SCALE_COUNT - ADC_I_CHASSIS_OFFSET_COUNT) * ADC_I_CHASSIS_RATIO)
-
 
 /** @brief 全部通道位的掩码，用于初始化未校准通道集合，不代表采样新鲜度。 */
 #define ADC_CAL_ALL_CHANNELS_MASK ((1U << ADC_CHANNEL_COUNT) - 1U)

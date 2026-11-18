@@ -8,6 +8,8 @@
 
 #include "adc_calibration_record.h"
 
+#include "bsp_adc.h"
+
 #include <float.h>
 #include <math.h>
 

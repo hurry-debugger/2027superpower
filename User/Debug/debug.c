@@ -18,11 +18,11 @@ void DataWavePkg(void)
         case DEBUG_WAVE_CURRENT:
         {
             DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Target);
-            DataScope_Get_Channel_Data(g_bsp_adc_feedback.adc_convert[I_CHASSIS]);	
+            DataScope_Get_Channel_Data(g_bsp_adc_legacy_chassis_current_a);
             DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Output);
             DataScope_Get_Channel_Data(g_power_ctrl.generalized_duty);
-            DataScope_Get_Channel_Data(g_bsp_adc_feedback.adc_convert[V_CHASSIS]);	
-            DataScope_Get_Channel_Data(g_bsp_adc_feedback.adc_convert[V_CAP]);	
+            DataScope_Get_Channel_Data(adc_fdb.A.V);
+            DataScope_Get_Channel_Data(adc_fdb.B.V);
         }    break;
 
         case DEBUG_WAVE_CURRENT_VOLTAGE:
