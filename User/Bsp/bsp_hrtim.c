@@ -110,3 +110,14 @@ void BspHrtim_DisableOutput(void)
         Error_Handler();
     }
 }
+
+bool BspHrtim_IsPowerOutputEnabled(void)
+{
+    return (hhrtim1.Instance->sCommonRegs.ODSR & BSP_HRTIM_POWER_OUTPUT_MASK) == 0U;
+}
+
+void BspHrtim_TripPowerOutput(void)
+{
+    /* ODISR 为写 1 关断命令寄存器，对应 ODSR 的相同四个位。 */
+    hhrtim1.Instance->sCommonRegs.ODISR = BSP_HRTIM_POWER_OUTPUT_MASK;
+}

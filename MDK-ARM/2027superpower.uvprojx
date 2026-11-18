@@ -1657,6 +1657,16 @@
           <GroupName>Application/User/App</GroupName>
           <Files>
             <File>
+              <FileName>error.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../User/App/error.c</FilePath>
+            </File>
+            <File>
+              <FileName>error.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../User/App/error.h</FilePath>
+            </File>
+            <File>
               <FileName>power_ctrl.c</FileName>
               <FileType>1</FileType>
               <FilePath>../User/App/power_ctrl.c</FilePath>

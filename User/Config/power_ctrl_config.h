@@ -1,6 +1,6 @@
 /**
  * @file power_ctrl_config.h
- * @brief 25 kHz 控制参数、1 kHz 保护累计及恢复周期。
+ * @brief 25 kHz 控制参数及与保护共用的电压基准。
  * @note 阈值来自用户确认，实际保护能力待上板验证；编译模式由 main.h 选择。
  */
 #ifndef SUPERPOWER_POWER_CTRL_CONFIG_H
@@ -18,13 +18,13 @@
 /** @brief 用户确认的低压充电平均目标上限 A，参考港科 RM2024；本板能力待测。 */
 #define POWER_CTRL_CAP_LOW_CHARGE_CURRENT_A (4.0f)
 /**
- * @brief 能量修正输出的对称范围参数 W，同时用于派生底盘 30 A 关断阈值。
+ * @brief 能量修正输出的对称范围参数，单位 W。
  * @note 能量 PID 的 MaxOut 为此值；IntegralLimit 虽登记相同值，NONE 下不启用。
  *       此宏不直接限制 A 端目标功率；目标电流另受电容电压分段边界限制。
  */
 #define POWER_CTRL_POWER_MAX_W (450.0f)
 /**
- * @brief 用户确认的底盘、电容共用硬过压阈值，单位 V；严格超过即保护，当前为 29 V。
+ * @brief 用户确认的底盘、电容软件电压上界及控制基准，当前为 29 V。
  * @note 修改此最大电压时，须重新计算并同步下列派生宏及相关源码、文档中的电压注释。
  *       比例来自用户要求；宏表达式自动计算，注释中的当前电压值需人工同步。
  */
@@ -40,7 +40,7 @@
     (POWER_CTRL_OVERVOLTAGE_V / POWER_CTRL_CHASSIS_NOMINAL_VOLTAGE_V)
 /**
  * @brief 用户指定的电容最低电压，最大电压的 10%，单位 V；当前为 2.9 V。
- * @note 严格低于时禁止闭环输出；须外部充电达到此值，其他条件正常后按既有延时恢复。
+ * @note 严格低于时禁止闭环输出，达到下界后由 Error 模块继续判定恢复条件。
  */
 #define POWER_CTRL_CAP_MIN_VOLTAGE_V (POWER_CTRL_OVERVOLTAGE_V * 0.1f)
 /** @brief 电压竞争基础阈值，最大电压的 85%，单位 V；当前为 24.65 V，严格低于时退出竞争。 */
@@ -56,31 +56,7 @@
 #define POWER_CTRL_CAP_NORMAL_VOLTAGE_V (POWER_CTRL_OVERVOLTAGE_V * 0.4f)
 /** @brief 低压电流目标分界，最大电压的 20%，单位 V；当前为 5.8 V，低于时不主动请求放电。 */
 #define POWER_CTRL_CAP_LOW_VOLTAGE_V (POWER_CTRL_OVERVOLTAGE_V * 0.2f)
-/** @brief 底盘、电池共用输入下限 V；电池不设置物理电压上限。 */
-#define POWER_CTRL_INPUT_MIN_V (15.0f)
-/** @brief 用户指定的底盘过流关断阈值 A：450W / 20V */
-#define POWER_CTRL_CHASSIS_CURRENT_MAX_A (15.5f)
 
-/** @brief 港科 RM2024 底盘过压分档 V，实现按高到低判断，均为严格大于。 */
-#define POWER_CTRL_OVERVOLTAGE_LEVEL_1_V (27.0f)
-#define POWER_CTRL_OVERVOLTAGE_LEVEL_2_V (28.0f)
-#define POWER_CTRL_OVERVOLTAGE_LEVEL_3_V (29.0f)
-#define POWER_CTRL_OVERVOLTAGE_LEVEL_4_V (30.0f)
-/** @brief 各档每次 1 kHz 检查的加权步长，无量纲，不是 ADC 周期数。 */
-#define POWER_CTRL_OVERVOLTAGE_STEP_1 (1U)
-#define POWER_CTRL_OVERVOLTAGE_STEP_2 (5U)
-#define POWER_CTRL_OVERVOLTAGE_STEP_3 (25U)
-#define POWER_CTRL_OVERVOLTAGE_STEP_4 (125U)
-/** @brief 港科 RM2024 加权累计门槛；达到后饱和，底盘不高于 27 V 时清零。 */
-#define POWER_CTRL_OVERVOLTAGE_ACCUM_LIMIT (300U)
-
-/** @brief 用户指定的闭环连续无错误恢复时间 ms。 */
-#define POWER_CTRL_RESTART_DELAY_MS (500U)
-/** @brief 换算为 ADC 控制周期；当前门槛 12500 次，严格超过才恢复。 */
-#define POWER_CTRL_RESTART_DELAY_CYCLES \
-    (POWER_CTRL_RESTART_DELAY_MS * 1000U / POWER_CTRL_PERIOD_US)
-/** @brief 裁判共用接收时间戳超时 ms，仅闭环检查。 */
-#define POWER_CTRL_REFEREE_TIMEOUT_MS (300U)
 /** @brief 用户确认的缓冲能量目标 J；目标减反馈产生功率修正 u_E，随后从功率目标扣除。 */
 #define POWER_CTRL_ENERGY_TARGET_J (45.0f)
 

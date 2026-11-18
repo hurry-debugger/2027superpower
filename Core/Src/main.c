@@ -119,6 +119,7 @@ int main(void)
     __HAL_HRTIM_ENABLE_IT(&hhrtim1, hhrtim1.Init.HRTIMInterruptResquests);
     __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1,
                                  hhrtim1.TimerParam[HRTIM_TIMERINDEX_MASTER].InterruptRequests);
+    __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_TIM_IT_REP);
     if(HAL_HRTIM_WaveformCountStart(
            &hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B) != HAL_OK)
     {

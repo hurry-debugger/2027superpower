@@ -10,6 +10,8 @@
 #ifndef SUPERPOWER_BSP_HRTIM_H
 #define SUPERPOWER_BSP_HRTIM_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -85,6 +87,19 @@ void BspHrtim_EnableOutput(void);
  *       不是可在任意中断中抢占执行的硬件故障保护接口。
  */
 void BspHrtim_DisableOutput(void);
+
+/**
+ * @brief 查询四路功率输出是否都已使能，来源为 HRTIM 公共 ODSR。
+ * @pre MX_HRTIM1_Init() 已完成。
+ */
+bool BspHrtim_IsPowerOutputEnabled(void);
+
+/**
+ * @brief 故障路径用 ODISR 写 1 关断四路功率输出，独立于 HAL 句柄锁。
+ * @pre MX_HRTIM1_Init() 已完成，由 Master 或 HRTIM Fault 中断调用。
+ * @note 保留计数器、ADC 触发及故障配置。
+ */
+void BspHrtim_TripPowerOutput(void);
 
 #ifdef __cplusplus
 }

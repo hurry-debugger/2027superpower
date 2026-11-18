@@ -7,6 +7,7 @@
 
 #include "bsp_can.h"
 #include "bsp_analog.h"
+#include "error.h"
 #include "power_ctrl.h"
 
 #include <float.h>
@@ -32,7 +33,8 @@ void SupercapCan_SendStatus(void)
 {
     float cap_voltage_v;
     float chassis_current_a;
-    PowerCtrlError_t errors;
+    ErrorGroup_t auto_errors;
+    ErrorLevel_e error_level;
     PowerCtrlState_e state;
     uint8_t faults = 0U;
     uint8_t wire_state = SUPERCAP_CAN_STATE_PROTECT;
@@ -43,21 +45,20 @@ void SupercapCan_SendStatus(void)
     __DMB();
     cap_voltage_v = adc_fdb.B.V;
     chassis_current_a = adc_fdb.A.I;
-    errors = g_power_ctrl.errors;
+    auto_errors.flags.all = g_error.auto_recover.flags.all;
+    error_level = Error_GetLevel();
     state = g_power_ctrl.state;
     __DMB();
     __set_PRIMASK(primask);
 
     /* 内部字段按电压异常命名，线上仍显式映射原故障位；其他原因由 PROTECT 体现。 */
-    if(errors.bits.cap_voltage)
+    if(auto_errors.flags.bits.cap_voltage || auto_errors.flags.bits.b_overvoltage)
         faults |= SUPERCAP_CAN_FAULT_CAP_OVERVOLTAGE;
-    if(errors.bits.chassis_voltage)
+    if(auto_errors.flags.bits.chassis_voltage || auto_errors.flags.bits.a_overvoltage)
         faults |= SUPERCAP_CAN_FAULT_CHASSIS_OVERVOLTAGE;
-    if(errors.bits.bat_voltage)
+    if(auto_errors.flags.bits.bat_voltage)
         faults |= SUPERCAP_CAN_FAULT_BAT_UNDERVOLTAGE;
-    if(errors.bits.referee)
-        faults |= SUPERCAP_CAN_FAULT_REFEREE;
-    if(state == CTRL_MODE)
+    if(state == CTRL_MODE && error_level == ERROR_NONE)
         wire_state = SUPERCAP_CAN_STATE_NORMAL;
     SupercapCan_SendFeedback(cap_voltage_v, chassis_current_a, faults, wire_state);
 }
