@@ -30,7 +30,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bsp_adc.h"
+#include "bsp_analog.h"
 #include "bsp_hrtim.h"
 
 /* USER CODE END Includes */
@@ -110,10 +110,17 @@ int main(void)
   MX_DAC1_Init();
   MX_FDCAN2_Init();
   /* USER CODE BEGIN 2 */
-    /* 关闭功率输出后准备双 ADC，Master 仅提供采样触发和重复中断。 */
     BspHrtim_DisableOutput();
-    BspAdcFeedback_Init();
-    if(HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER) != HAL_OK)
+    BspAnalog_Init();
+    if(HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    __HAL_HRTIM_ENABLE_IT(&hhrtim1, hhrtim1.Init.HRTIMInterruptResquests);
+    __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1,
+                                 hhrtim1.TimerParam[HRTIM_TIMERINDEX_MASTER].InterruptRequests);
+    if(HAL_HRTIM_WaveformCountStart(
+           &hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B) != HAL_OK)
     {
         Error_Handler();
     }

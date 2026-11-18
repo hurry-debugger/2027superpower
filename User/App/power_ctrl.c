@@ -8,7 +8,7 @@
 
 #include "main.h"
 #include "power_ctrl_config.h"
-#include "bsp_adc.h"
+#include "bsp_analog.h"
 #include "prot_judge.h"
 #include "bsp_hrtim.h"
 
@@ -76,7 +76,7 @@ void PowerCtrl_Task(void)
 static void PowerCtrl_ModeSwitch(void)
 {
     /* 过流仍先于前馈计算，命中本周期关断并锁存至 MCU 复位。 */
-    if(fabsf(g_bsp_adc_legacy_chassis_current_a) > POWER_CTRL_CHASSIS_CURRENT_MAX_A)
+    if(fabsf(adc_fdb.A.I) > POWER_CTRL_CHASSIS_CURRENT_MAX_A)
         g_power_ctrl.errors.bits.short_circuit = 1U;
         
     g_power_ctrl.errors.bits.cap_voltage = !(adc_fdb.B.V >= POWER_CTRL_CAP_MIN_VOLTAGE_V
@@ -85,7 +85,7 @@ static void PowerCtrl_ModeSwitch(void)
     g_power_ctrl.generalized_duty = adc_fdb.B.V
         / adc_fdb.A.V;
     g_power_ctrl.A_power_fdb = adc_fdb.A.V
-        * g_bsp_adc_legacy_chassis_current_a;
+        * adc_fdb.A.I;
 
     if(g_power_ctrl.errors.all != 0U
     || !(g_power_ctrl.generalized_duty > BSP_HRTIM_GENERALIZED_DUTY_MIN&&g_power_ctrl.generalized_duty < BSP_HRTIM_GENERALIZED_DUTY_MAX))
@@ -198,7 +198,7 @@ static void PowerCtrl_CascadePidCalcu(void)
     g_power_ctrl.voltage_pid.Last_Output = g_power_ctrl.voltage_pid.Output;
 
     PID_Calculate_Increase(&g_power_ctrl.current_pid,
-        g_bsp_adc_legacy_chassis_current_a, g_power_ctrl.power_pid.Output);
+        adc_fdb.A.I, g_power_ctrl.power_pid.Output);
     OUTPUT_LIMIT(g_power_ctrl.current_pid.Output,
                  POWER_CTRL_OUTPUT_DUTY_MAX, BSP_HRTIM_GENERALIZED_DUTY_MIN);
     g_power_ctrl.current_pid.Last_Output = g_power_ctrl.current_pid.Output;

@@ -8,7 +8,7 @@
 #define SUPERPOWER_ADC_CALIBRATION_RECORD_H
 
 #include "UID.h"
-#include "bsp_adc.h"
+#include "bsp_analog.h"
 
 #ifdef __cplusplus
 extern "C"

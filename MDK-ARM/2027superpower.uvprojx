@@ -1607,14 +1607,14 @@
               <FilePath>../User/Bsp/bsp_hrtim.h</FilePath>
             </File>
             <File>
-              <FileName>bsp_adc.c</FileName>
+              <FileName>bsp_analog.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../User/Bsp/bsp_adc.c</FilePath>
+              <FilePath>../User/Bsp/bsp_analog.c</FilePath>
             </File>
             <File>
-              <FileName>bsp_adc.h</FileName>
+              <FileName>bsp_analog.h</FileName>
               <FileType>5</FileType>
-              <FilePath>../User/Bsp/bsp_adc.h</FilePath>
+              <FilePath>../User/Bsp/bsp_analog.h</FilePath>
             </File>
             <File>
               <FileName>bsp_dwt.c</FileName>

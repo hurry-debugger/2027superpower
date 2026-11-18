@@ -1,20 +1,28 @@
 /**
- * @file bsp_adc.c
- * @brief 双 ADC 同步采样、循环 DMA 及六路物理量发布。
+ * @file bsp_analog.c
+ * @brief 模拟外设启动、双 ADC 同步采样和 DAC 锯齿复位码更新。
  */
-#include "bsp_adc.h"
+#include "bsp_analog.h"
 
 #include "adc.h"
+#include "comp.h"
+#include "dac.h"
 #include "opamp.h"
 
 /** @brief 循环 DMA 一次填充四轮扫描，每字低半字为 ADC1，高半字为 ADC2。 */
 static volatile uint32_t s_adc12_dma[BSP_ADC_SCAN_COUNT][BSP_ADC_RANK_COUNT];
 
 BspAdcFeedback_t adc_fdb;
-float g_bsp_adc_legacy_chassis_current_a;
 
-void BspAdcFeedback_Init(void)
+void BspAnalog_Init(void)
 {
+    if(HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK
+       || HAL_OPAMP_SelfCalibrate(&hopamp2) != HAL_OK
+       || HAL_OPAMP_SelfCalibrate(&hopamp3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
     if(HAL_OPAMP_Start(&hopamp1) != HAL_OK
        || HAL_OPAMP_Start(&hopamp2) != HAL_OK
        || HAL_OPAMP_Start(&hopamp3) != HAL_OK)
@@ -22,6 +30,15 @@ void BspAdcFeedback_Init(void)
         Error_Handler();
     }
     HAL_Delay(BSP_ADC_OPAMP_SETTLE_MS);
+
+    BspAnalog_UpdateDacFromAdc();
+    if(HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK
+       || HAL_DAC_Start(&hdac1, DAC_CHANNEL_1) != HAL_OK
+       || HAL_COMP_Start(&hcomp2) != HAL_OK
+       || HAL_COMP_Start(&hcomp3) != HAL_OK)
+    {
+        Error_Handler();
+    }
 
     if(HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK
        || HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED) != HAL_OK)
@@ -68,4 +85,24 @@ void BspAdcFeedback_Process(void)
         (float)(rank_sums[2U] >> ADC_CDR_RDATA_SLV_Pos) * BSP_ADC_V_PER_SUM_COUNT;
     adc_fdb.ref.V =
         (float)(rank_sums[3U] & ADC_CDR_RDATA_MST_Msk) * BSP_ADC_V_PER_SUM_COUNT;
+}
+
+void BspAnalog_UpdateDacFromAdc(void)
+{
+    /* 按本板零点和 INA240 标称参数直接换算，截断小数后写入锯齿复位码。 */
+    if(HAL_DACEx_SawtoothWaveGenerate(
+           &hdac1, DAC_CHANNEL_2, DAC_SAWTOOTH_POLARITY_INCREMENT,
+           (uint32_t)((ADC_I_BAT_ZERO_V
+                       + adc_fdb.A.I * (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
+                      * (BSP_ANALOG_DAC_CODE_COUNT / ADC_REFERENCE_V)),
+           BSP_ANALOG_DAC_STEP_CODE) != HAL_OK
+       || HAL_DACEx_SawtoothWaveGenerate(
+           &hdac1, DAC_CHANNEL_1, DAC_SAWTOOTH_POLARITY_INCREMENT,
+           (uint32_t)((BSP_ADC_I_B_ZERO_V
+                       + adc_fdb.B.I * (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
+                      * (BSP_ANALOG_DAC_CODE_COUNT / ADC_REFERENCE_V)),
+           BSP_ANALOG_DAC_STEP_CODE) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }

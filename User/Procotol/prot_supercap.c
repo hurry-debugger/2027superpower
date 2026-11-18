@@ -6,7 +6,7 @@
 #include "prot_supercap.h"
 
 #include "bsp_can.h"
-#include "bsp_adc.h"
+#include "bsp_analog.h"
 #include "power_ctrl.h"
 
 #include <float.h>
@@ -42,7 +42,7 @@ void SupercapCan_SendStatus(void)
     __disable_irq();
     __DMB();
     cap_voltage_v = adc_fdb.B.V;
-    chassis_current_a = g_bsp_adc_legacy_chassis_current_a;
+    chassis_current_a = adc_fdb.A.I;
     errors = g_power_ctrl.errors;
     state = g_power_ctrl.state;
     __DMB();
