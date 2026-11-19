@@ -121,7 +121,7 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pFaultBlkCfg.Threshold = 8;
+  pFaultBlkCfg.Threshold = 2;
   pFaultBlkCfg.ResetMode = HRTIM_FAULTCOUNTERRST_UNCONDITIONAL;
   pFaultBlkCfg.BlankingSource = HRTIM_FAULTBLANKINGMODE_RSTALIGNED;
   if (HAL_HRTIM_FaultCounterConfig(&hhrtim1, HRTIM_FAULT_1, &pFaultBlkCfg) != HAL_OK)
@@ -402,9 +402,9 @@ void HAL_HRTIM_MspInit(HRTIM_HandleTypeDef* hrtimHandle)
     __HAL_RCC_HRTIM1_CLK_ENABLE();
 
     /* HRTIM1 interrupt Init */
-    HAL_NVIC_SetPriority(HRTIM1_Master_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(HRTIM1_Master_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
-    HAL_NVIC_SetPriority(HRTIM1_TIMA_IRQn, 1, 0);
+    HAL_NVIC_SetPriority(HRTIM1_TIMA_IRQn, 2, 0);
     HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
     HAL_NVIC_SetPriority(HRTIM1_FLT_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(HRTIM1_FLT_IRQn);
