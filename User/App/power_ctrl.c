@@ -16,8 +16,8 @@
 
 /* ==================== 私有声明 ==================== */
 
-static float PowerCtrl_CalculateCurrentTarget(void);
-static void PowerCtrl_ModeSwitch(void);
+static void PowerCtrl_CalculateCurrentTarget(void);
+static void PowerCtrl_CurrentTargetLimit(void);
 static void PowerCtrl_ResetLoops(void);
 
 static volatile error_t s_error; /**< Fault 与 Timer A 共享的故障锁存及重试计时。 */
@@ -29,8 +29,8 @@ void PowerCtrl_Init(void)
     g_power_ctrl.state = PROTECT_MODE;
 
     /* 三个位置式外环首版均使用零增益。离散系数按 Master 每 16 us 调用定义。 */
-    PID_Init(&g_power_ctrl.energy_pid, POWER_CTRL_POWER_MAX_W, 
-                POWER_CTRL_POWER_MAX_W, 0.0f,
+    PID_Init(&g_power_ctrl.energy_pid, 20, 
+                0.0f, 0.0f,
                 0.0f, 0.0f, 0.0f,
                 0.0f, 0.0f, 0.0f, 0.0f, NONE);
     PID_Init(&g_power_ctrl.power_pid, POWER_CTRL_CAP_CURRENT_MAX_A,
@@ -45,36 +45,42 @@ void PowerCtrl_Init(void)
 
 void PowerCtrl_Task(void)
 {
+    // clang-format off
     switch(g_power_ctrl.state)
     {
-        case PROTECT_MODE:{
+        case PROTECT_MODE:
+        {
             PowerCtrl_ResetLoops();
             LL_HRTIM_DisableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
-            if(s_error.faults.all != 0U)
+            if(s_error.faults.all == 0U)
             {
                 BspHrtim_ModeStateMachine();
                 BspAnalog_UpdateDacTarget(0.0f);
                 LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
                 g_power_ctrl.state = CTRL_MODE;
             }
-        }   break;
+        }    break;
 
-        case CTRL_MODE:{
+        case CTRL_MODE:
+        {
             if(s_error.faults.all != 0U)
                 g_power_ctrl.state = PROTECT_MODE;
             else
             {
                 PowerCtrl_CalculateCurrentTarget();
                 PowerCtrl_CurrentTargetLimit();
+
                 BspHrtim_ModeStateMachine();
                 BspAnalog_UpdateDacTarget(g_power_ctrl.inducotor_current_target_a);
             }
-        }   break;
+        }    break;
 
         default:
+        {
             g_power_ctrl.state = PROTECT_MODE;
-            break;
+        }    break;
     }
+    // clang-format on
 }
 
 void PowerCtrl_RecordHrtimFault(uint32_t fault_mask)
@@ -83,7 +89,34 @@ void PowerCtrl_RecordHrtimFault(uint32_t fault_mask)
     if(s_error.faults.all == 0U)
         s_error.fault_retry_start_ms = HAL_GetTick();
 
-    s_error.faults.all |= fault_mask;
+    if((fault_mask & HRTIM_FLAG_FLT1) != 0U)
+        s_error.faults.bits.chassis_overcurrent = 1U;
+
+    if((fault_mask & HRTIM_FLAG_FLT2) != 0U)
+        s_error.faults.bits.battery_overcurrent = 1U;
+
+    if((fault_mask & HRTIM_FLAG_FLT3) != 0U)
+    {
+        s_error.faults.bits.chassis_voltage_fault = 1U;
+        if(adc_fdb.A.V > POWER_CTRL_A_REF_MAX_V)
+            s_error.faults.bits.chassis_overvoltage = 1U;
+        else if(adc_fdb.A.V < POWER_CTRL_A_REF_MIN_V)
+            s_error.faults.bits.chassis_undervoltage = 1U;
+    }
+
+    if((fault_mask & HRTIM_FLAG_FLT4) != 0U)
+        s_error.faults.bits.cap_overcurrent = 1U;
+
+    if((fault_mask & HRTIM_FLAG_FLT5) != 0U)
+    {
+        s_error.faults.bits.cap_voltage_fault = 1U;
+        /* 明细记录最近发布的反馈；原始 Fault 独立锁存，不依赖反馈是否已越界。 */
+        if(adc_fdb.B.V > POWER_CTRL_OVERVOLTAGE_V)
+            s_error.faults.bits.cap_overvoltage = 1U;
+        else if(adc_fdb.B.V < POWER_CTRL_CAP_MIN_VOLTAGE_V)
+            s_error.faults.bits.cap_undervoltage = 1U;
+    }
+
     g_power_ctrl.state = PROTECT_MODE;
 }
 
@@ -106,7 +139,19 @@ void PowerCtrl_TryRecoverFault(void)
     }
 }
 
-uint32_t PowerCtrl_ReadHrtimFaults(void)
+void TimerA_1ms_buffer_loop_calculate(void)
+{
+    if((uint32_t)(HAL_GetTick() - g_judge_rx_update_ms) > POWER_CTRL_JUDGE_TIMEOUT_MS)
+    {
+        robot_status.chassis_power_limit = POWER_CTRL_JUDGE_OFFLINE_LIMIT_W;
+        g_power_ctrl.energy_pid.Output = 0.0f;
+    }else
+    {
+        g_power_ctrl.energy_pid.Output = g_power_ctrl.energy_pid.Kp * (POWER_CTRL_ENERGY_TARGET_J - g_power_ctrl.energy_pid.Measure);
+    }
+}
+
+uint32_t PowerCtrl_ReadFaults(void)
 {
     return s_error.faults.all;
 }
@@ -123,50 +168,11 @@ static void PowerCtrl_ResetLoops(void)
     g_power_ctrl.inductor_current_upper_limit_a = 0.0f;
     g_power_ctrl.inductor_current_lower_limit_a = 0.0f;
 }
-static void PowerCtrl_CurrentTargetLimit(void)
-{
-    if(adc_fdb.B.V >= POWER_CTRL_CAP_LOW_VOLTAGE_V)
-    {
-        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_MAX_A;
-        g_power_ctrl.inductor_current_lower_limit_a = -POWER_CTRL_CAP_CURRENT_MAX_A;
-    }
-    else if(adc_fdb.B.V > POWER_CTRL_CAP_CURRENT_KNEE_V)
-    {
-        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_KNEE_A
-            + (adc_fdb.B.V - POWER_CTRL_CAP_CURRENT_KNEE_V)
-                * ((POWER_CTRL_CAP_CURRENT_MAX_A - POWER_CTRL_CAP_CURRENT_KNEE_A)
-                    / (POWER_CTRL_CAP_LOW_VOLTAGE_V - POWER_CTRL_CAP_CURRENT_KNEE_V));
-        g_power_ctrl.inductor_current_lower_limit_a = -g_power_ctrl.inductor_current_upper_limit_a;
-    }
-    else
-    {
-        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_KNEE_A;
-        g_power_ctrl.inductor_current_lower_limit_a = -POWER_CTRL_CAP_DISCHARGE_FLOOR_A
-            - adc_fdb.B.V * ((POWER_CTRL_CAP_CURRENT_KNEE_A - POWER_CTRL_CAP_DISCHARGE_FLOOR_A)
-                            / POWER_CTRL_CAP_CURRENT_KNEE_V);
-    }
 
-    OUTPUT_LIMIT(g_power_ctrl.inducotor_current_target_a,
-                 g_power_ctrl.inductor_current_upper_limit_a,
-                 g_power_ctrl.inductor_current_lower_limit_a);
-}
-
-void TimerA_1ms_buffer_loop_calculate(void)
-{
-    if((uint32_t)(HAL_GetTick() - g_judge_rx_update_ms) > POWER_CTRL_JUDGE_TIMEOUT_MS)
-    {
-        robot_status.chassis_power_limit = POWER_CTRL_JUDGE_OFFLINE_LIMIT_W;
-        g_power_ctrl.energy_pid.Output = 0.0f;
-    }else
-    {
-        g_power_ctrl.energy_pid.Output = g_power_ctrl.energy_pid.Kp * (POWER_CTRL_ENERGY_TARGET_J - g_power_ctrl.energy_pid.Measure);
-    }
-}
 /**
- * @brief 由底盘功率上限和电池入口反馈计算 B 端平均电流目标。
- * @return 两环竞争选出的 B 端平均电流目标，单位 A。
- * @pre 仅在 CTRL_MODE 且 B 端占空比大于零时由 Master 调用，电容电压取本批 ADC 非负换算值。
- * @note 裁判超时期间采用固定功率上限，并暂停能量环更新。
+ * @brief 根据入口功率反馈和电容电压选出有符号电感电流目标，单位 A。
+ * @pre 仅在 Master 发布本批 ADC 反馈后的 CTRL_MODE 中调用。
+ * @note 电压环只限充，负输出钳到零并同步增量式 PID 的输出历史。
  *       每周期计算两环候选并复位落选环，电压竞争资格独立保留。
  */
 static void PowerCtrl_CalculateCurrentTarget(void)
@@ -176,6 +182,11 @@ static void PowerCtrl_CalculateCurrentTarget(void)
     PID_Calculate_Increase(&g_power_ctrl.power_pid, g_power_ctrl.ref_power_fdb_w, g_power_ctrl.ref_power_target_w);
 
     PID_Calculate_Increase(&g_power_ctrl.voltage_pid, adc_fdb.B.V, POWER_CTRL_CAP_TARGET_V);
+    if(g_power_ctrl.voltage_pid.Output < 0.0f)
+    {
+        g_power_ctrl.voltage_pid.Output = 0.0f;
+        g_power_ctrl.voltage_pid.Last_Output = 0.0f;
+    }
 
     if(g_power_ctrl.voltage_compete_enabled != 0U)
     {
@@ -200,3 +211,31 @@ static void PowerCtrl_CalculateCurrentTarget(void)
         g_power_ctrl.voltage_pid.PID_reset(&g_power_ctrl.voltage_pid);
     }
 }
+
+static void PowerCtrl_CurrentTargetLimit(void)
+{
+    if(adc_fdb.B.V >= POWER_CTRL_CAP_LOW_VOLTAGE_V)
+    {
+        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_MAX_A;
+        g_power_ctrl.inductor_current_lower_limit_a = -POWER_CTRL_CAP_CURRENT_MAX_A;
+    }
+    else if(adc_fdb.B.V > POWER_CTRL_CAP_CURRENT_KNEE_V)
+    {
+        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_KNEE_A
+            + (adc_fdb.B.V - POWER_CTRL_CAP_CURRENT_KNEE_V)
+                * ((POWER_CTRL_CAP_CURRENT_MAX_A - POWER_CTRL_CAP_CURRENT_KNEE_A)
+                    / (POWER_CTRL_CAP_LOW_VOLTAGE_V - POWER_CTRL_CAP_CURRENT_KNEE_V));
+        g_power_ctrl.inductor_current_lower_limit_a = -g_power_ctrl.inductor_current_upper_limit_a;
+    }
+    else
+    {
+        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_KNEE_A;
+        g_power_ctrl.inductor_current_lower_limit_a = -adc_fdb.B.V
+            * (POWER_CTRL_CAP_CURRENT_KNEE_A / POWER_CTRL_CAP_CURRENT_KNEE_V);
+    }
+
+    OUTPUT_LIMIT(g_power_ctrl.inducotor_current_target_a,
+                 g_power_ctrl.inductor_current_upper_limit_a,
+                 g_power_ctrl.inductor_current_lower_limit_a);
+}
+

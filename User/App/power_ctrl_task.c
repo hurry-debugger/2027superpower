@@ -73,7 +73,7 @@ void HAL_HRTIM_Fault2Callback(HRTIM_HandleTypeDef *hhrtim)
     PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT2);
 }
 
-/** @brief HRTIM1 FLT3 回调，HAL 清标志后记录 A 侧过压。 */
+/** @brief HRTIM1 FLT3 回调，HAL 清标志后记录 A/ref 电压越界及可判定的方向。 */
 void HAL_HRTIM_Fault3Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
@@ -87,7 +87,7 @@ void HAL_HRTIM_Fault4Callback(HRTIM_HandleTypeDef *hhrtim)
     PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT4);
 }
 
-/** @brief HRTIM1 FLT5 回调，HAL 清标志后记录 B 侧过压。 */
+/** @brief HRTIM1 FLT5 回调，HAL 清标志后记录 B 侧电压越界及可判定的方向。 */
 void HAL_HRTIM_Fault5Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;

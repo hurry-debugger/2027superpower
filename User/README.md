@@ -2,8 +2,8 @@
 >
 > 下文保留自 2026superpower 当前工作区，是 26 年代码的来源说明。
 > 已复制 User 模块并登记 Keil；这不代表下文描述的调用链已在 27 年工程运行。
-> `main` 关闭四路功率输出后初始化模拟外设并启动 Master/A/B 计数器。
-> Master 先发布 ADC 反馈，再更新双路 DAC；旧整机控制未启动。
+> `main` 调用 `SuperPower_Init()`；启动先关输出，控制任务随后可使能输出。
+> Master 发布 ADC 反馈后运行控制并更新 DAC；Timer A 调度能量环和 Fault 恢复检查。
 > 27 年实际状态以 [当前交接](../docs/handoff.md)、[架构](../docs/architecture.md)
 > 和 [硬件及 CubeMX 待办](../docs/hardware.md) 为准。
 

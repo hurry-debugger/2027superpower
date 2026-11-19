@@ -302,11 +302,15 @@ void MX_HRTIM1_Init(void)
   }
   pTimerEventFilteringCfg.Filter = HRTIM_TIMEEVFLT_BLANKINGCMP4;
   pTimerEventFilteringCfg.Latch = HRTIM_TIMEVENTLATCH_DISABLED;
-  if (HAL_HRTIM_TimerEventFilteringConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_EVENT_1, &pTimerEventFilteringCfg) != HAL_OK)
+  if (HAL_HRTIM_TimerEventFilteringConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_B, HRTIM_EVENT_1, &pTimerEventFilteringCfg) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_HRTIM_TimerEventFilteringConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_B, HRTIM_EVENT_1, &pTimerEventFilteringCfg) != HAL_OK)
+  if (HAL_HRTIM_TimerEventFilteringConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_B, HRTIM_EVENT_6, &pTimerEventFilteringCfg) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_HRTIM_TimerEventFilteringConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_EVENT_8, &pTimerEventFilteringCfg) != HAL_OK)
   {
     Error_Handler();
   }
@@ -328,7 +332,7 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   pOutputCfg.Polarity = HRTIM_OUTPUTPOLARITY_HIGH;
-  pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMCMP3|HRTIM_OUTPUTSET_EEV_6;
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMCMP3|HRTIM_OUTPUTSET_EEV_8;
   pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_TIMCMP1;
   pOutputCfg.IdleMode = HRTIM_OUTPUTIDLEMODE_NONE;
   pOutputCfg.IdleLevel = HRTIM_OUTPUTIDLELEVEL_INACTIVE;
@@ -339,7 +343,7 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pOutputCfg.SetSource = HRTIM_OUTPUTSET_EEV_8|HRTIM_OUTPUTSET_TIMCMP3;
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_EEV_6|HRTIM_OUTPUTSET_TIMCMP3;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_B, HRTIM_OUTPUT_TB1, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();

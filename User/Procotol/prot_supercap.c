@@ -8,7 +8,6 @@
 #include "bsp_can.h"
 #include "bsp_analog.h"
 #include "power_ctrl.h"
-#include "stm32g4xx_hal_hrtim.h"
 
 #include <float.h>
 #include <string.h>
@@ -44,15 +43,15 @@ void SupercapCan_SendStatus(void)
     __DMB();
     cap_voltage_v = adc_fdb.B.V;
     chassis_current_a = adc_fdb.A.I;
-    hrtim_faults = PowerCtrl_ReadHrtimFaults();
+    hrtim_faults = PowerCtrl_ReadFaults();
     state = g_power_ctrl.state;
     __DMB();
     __set_PRIMASK(primask);
 
-    /* FLT3/5 对应旧协议的两路过压位，过流通过 PROTECT 状态体现。 */
-    if((hrtim_faults & HRTIM_FLAG_FLT5) != 0U)
+    /* 仅明确的过压明细映射旧协议过压位；欠压、过流及未知方向故障通过 PROTECT 体现。 */
+    if((hrtim_faults & POWER_CTRL_FAULT_CAP_OVERVOLTAGE) != 0U)
         faults |= SUPERCAP_CAN_FAULT_CAP_OVERVOLTAGE;
-    if((hrtim_faults & HRTIM_FLAG_FLT3) != 0U)
+    if((hrtim_faults & POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE) != 0U)
         faults |= SUPERCAP_CAN_FAULT_CHASSIS_OVERVOLTAGE;
     if(state == CTRL_MODE && hrtim_faults == 0U)
         wire_state = SUPERCAP_CAN_STATE_NORMAL;

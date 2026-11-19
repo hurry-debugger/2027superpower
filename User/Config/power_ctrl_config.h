@@ -19,23 +19,19 @@
 /** @brief 软件 Fault 恢复尝试间隔，单位 ms，由本板控制要求给定。 */
 #define POWER_CTRL_FAULT_RETRY_MS (2000U)
 
-/** @brief 底盘关断与恢复阈值，单位 V，沿用港科 RM2025 上场版。 */
-#define POWER_CTRL_CHASSIS_UVLO_V (18.0f)
-#define POWER_CTRL_CHASSIS_RESTART_V (20.0f)
+/** @brief 用户确认 A 端与 ref 并联，共用电压下限，单位 V。 */
+#define POWER_CTRL_A_REF_MIN_V (15.0f)
+/** @brief A/ref 共用电压上限，单位 V，引用用户确认的 29 V 基准。 */
+#define POWER_CTRL_A_REF_MAX_V (POWER_CTRL_OVERVOLTAGE_V)
 
-/** @brief 电池入口输出资格范围，单位 V。下限沿用旧控制，上限取本板 ADC 理论量程。 */
-#define POWER_CTRL_BAT_MIN_V (15.0f)
-#define POWER_CTRL_BAT_MAX_V (ADC_REFERENCE_V * BSP_ADC_VOLTAGE_DIVIDER_RATIO)
+/** @brief 电池入口沿用 A/ref 共用范围，单位 V，不另设独立电压阈值。 */
+#define POWER_CTRL_BAT_MIN_V (POWER_CTRL_A_REF_MIN_V)
+#define POWER_CTRL_BAT_MAX_V (POWER_CTRL_A_REF_MAX_V)
 
-/** @brief 沿用原 DAC 峰谷目标的电感瞬时电流幅值约束，单位 A。 */
+/** @brief 保留的原电感瞬时电流幅值参数，单位 A；当前控制不引用。 */
 #define POWER_CTRL_INDUCTOR_CURRENT_PEAK_A (15.0f)
-/** @brief B 端最大充放电平均电流幅值，单位 A，来源为用户提供的 CM01 限流曲线。 */
+/** @brief 取用户提供的 CM01 曲线幅值限制电感电流目标，单位 A，不含 DAC 半纹波偏置。 */
 #define POWER_CTRL_CAP_CURRENT_MAX_A (15.0f)
-/**
- * @brief 能量修正输出的对称范围参数，单位 W。
- * @note 450 W 限制能量修正输出。IntegralLimit 虽登记相同值，NONE 下不启用。
- */
-#define POWER_CTRL_POWER_MAX_W (450.0f)
 /**
  * @brief 用户确认的底盘、电容软件电压上界及控制基准，当前为 29 V。
  * @note 修改此最大电压时，须重新计算并同步下列派生宏及相关源码、文档中的电压注释。
@@ -62,8 +58,6 @@
 #define POWER_CTRL_CAP_CURRENT_KNEE_V (5.0f)
 /** @brief 低压段的充电上限及拐点处的放电电流幅值，单位 A，来源为用户提供的限流曲线。 */
 #define POWER_CTRL_CAP_CURRENT_KNEE_A (1.0f)
-/** @brief B 端 0 V 时的放电电流幅值，单位 A，沿用港科 RM2025 上场版。 */
-#define POWER_CTRL_CAP_DISCHARGE_FLOOR_A (0.2f)
 
 /** @brief 用户确认的缓冲能量目标 J；目标减反馈产生功率修正 u_E，随后从功率目标扣除。 */
 #define POWER_CTRL_ENERGY_TARGET_J (45.0f)
