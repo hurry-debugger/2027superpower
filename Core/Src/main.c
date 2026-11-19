@@ -30,8 +30,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bsp_analog.h"
-#include "bsp_hrtim.h"
+#include "power_ctrl_task.h"
 
 /* USER CODE END Includes */
 
@@ -110,21 +109,7 @@ int main(void)
   MX_DAC1_Init();
   MX_FDCAN2_Init();
   /* USER CODE BEGIN 2 */
-    BspHrtim_DisableOutput();
-    BspAnalog_Init();
-    if(HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    __HAL_HRTIM_ENABLE_IT(&hhrtim1, hhrtim1.Init.HRTIMInterruptResquests);
-    __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1,
-                                 hhrtim1.TimerParam[HRTIM_TIMERINDEX_MASTER].InterruptRequests);
-    __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_TIM_IT_REP);
-    if(HAL_HRTIM_WaveformCountStart(
-           &hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B) != HAL_OK)
-    {
-        Error_Handler();
-    }
+    SuperPower_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */

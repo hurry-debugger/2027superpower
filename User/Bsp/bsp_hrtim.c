@@ -1,123 +1,135 @@
 /**
  * @file bsp_hrtim.c
- * @brief 本板广义占空比分配、中心对称比较值更新和四路功率输出启停。
- * @details 分配公式及迟滞初值参考港科 RM2024 PowerManager.cpp 的 updatePWM()；
- *          按本板原理图重新映射物理侧和上下管，不沿用参考工程的 Timer A/B 含义。
- * @note 参数和波形尚未上板验证；调用方须核对 CubeMX 更新配置。
- *       运行期闭环由 PowerCtrl 管理输出和占空比，开环由 ADC1 DMA 回调单次开启固定 PWM。
+ * @brief 按端口电压切换四种功率级模式，并通过 LL 更新 HRTIM 比较值。
+ * @details 模式切换和比较值取自港科 RM2025 上场版 PowerManager.cpp 的 modeStateMachine()。
+ *          本板底盘侧为 Timer B，电容侧为 Timer A，按物理侧对应参考实现。
  */
 
 #include "bsp_hrtim.h"
 
+#include "bsp_analog.h"
 #include "hrtim.h"
-
-#include <stdbool.h>
-#include <stdint.h>
 
 /* ==================== 私有定义 ==================== */
 
-/** @brief 本板四路功率输出，来源为当前 HRTIM1 引脚配置及原理图第 3 页。 */
-#define BSP_HRTIM_POWER_OUTPUT_MASK \
-    (HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2 | HRTIM_OUTPUT_TB1 | HRTIM_OUTPUT_TB2)
-
-/** @brief 同时禁止 A/B 预装载到活动寄存器的传输；位定义来自 STM32G4 CMSIS。 */
-#define BSP_HRTIM_UPDATE_DISABLE_MASK (HRTIM_CR1_TAUDIS | HRTIM_CR1_TBUDIS)
-
-/** @brief 中间调制模式的迟滞状态；仅由 Init 和占空比更新入口修改。 */
-static bool s_buck_boost_mode = false;
+/** @brief 保存迟滞模式和本轮电压比，由 Master 回调中的状态机更新。 */
+static BspHrtimState_t s_hrtim_state = {.mode = BSP_HRTIM_MODE_BUCK};
 
 /* ==================== 公共实现 ==================== */
 
-void BspHrtim_SetGeneralizedDuty(float generalized_duty)
+void BspHrtim_ModeStateMachine(void)
 {
-    /* NaN 不满足自相等，跳过调制及寄存器写入；不改变输出启停或控制状态。 */
-    if(generalized_duty == generalized_duty)
+    s_hrtim_state.voltage_ratio = adc_fdb.B.V / adc_fdb.A.V;
+    // clang-format off
+    switch(s_hrtim_state.mode)
     {
-        float chassis_upper_duty;
-        float cap_upper_duty;
-
-        if(generalized_duty < BSP_HRTIM_GENERALIZED_DUTY_MIN)
-            generalized_duty = BSP_HRTIM_GENERALIZED_DUTY_MIN;
-        else if(generalized_duty > BSP_HRTIM_GENERALIZED_DUTY_MAX)
-            generalized_duty = BSP_HRTIM_GENERALIZED_DUTY_MAX;
-
-        if(s_buck_boost_mode)
+        case BSP_HRTIM_MODE_BUCK:
         {
-            if(generalized_duty < BSP_HRTIM_BUCK_BOOST_EXIT_MIN
-               || generalized_duty > BSP_HRTIM_BUCK_BOOST_EXIT_MAX)
+            if(s_hrtim_state.voltage_ratio > BSP_HRTIM_BUCK_TO_BUCKBOOST_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BUCKBOOST;
+        }    break;
+
+        case BSP_HRTIM_MODE_BUCKBOOST:
+        {
+            if(s_hrtim_state.voltage_ratio < BSP_HRTIM_BUCKBOOST_TO_BUCK_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BUCK;
+            else if(s_hrtim_state.voltage_ratio > BSP_HRTIM_BUCKBOOST_TO_BOOSTBUCK_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BOOSTBUCK;
+        }    break;
+
+        case BSP_HRTIM_MODE_BOOSTBUCK:
+        {
+            if(s_hrtim_state.voltage_ratio < BSP_HRTIM_BOOST_MODES_TO_BUCK_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BUCK;
+            else if(s_hrtim_state.voltage_ratio < BSP_HRTIM_BOOSTBUCK_TO_BUCKBOOST_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BUCKBOOST;
+            else if(s_hrtim_state.voltage_ratio > BSP_HRTIM_BOOSTBUCK_TO_BOOST_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BOOST;
+        }    break;
+
+        case BSP_HRTIM_MODE_BOOST:
+        {
+            if(s_hrtim_state.voltage_ratio < BSP_HRTIM_BOOST_MODES_TO_BUCK_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BUCK;
+            else if(s_hrtim_state.voltage_ratio < BSP_HRTIM_BOOST_TO_BOOSTBUCK_RATIO)
+                s_hrtim_state.mode = BSP_HRTIM_MODE_BOOSTBUCK;
+        }    break;
+
+        default:
+        {
+        }    break;
+    }
+
+    /* 按切换后的模式写入预装载值，A/B 各自在复位时装载。 */
+    switch(s_hrtim_state.mode)
+    {
+        case BSP_HRTIM_MODE_BUCK:
+        {
+            LL_HRTIM_TIM_SetCompare4(HRTIM1, LL_HRTIM_TIMER_B,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_REGULATED_CMP4_FRACTION);
+            LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_B,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_BUCK_CMP3_FRACTION);
+            LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_A, 0U);
+        }    break;
+
+        case BSP_HRTIM_MODE_BUCKBOOST:
+        {
+            LL_HRTIM_TIM_SetCompare4(HRTIM1, LL_HRTIM_TIMER_B,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_REGULATED_CMP4_FRACTION);
+            LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_B,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_BUCKBOOST_CMP3_FRACTION);
+            LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_A,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_FIXED_CMP3_FRACTION);
+            LL_HRTIM_TIM_SetCompare4(HRTIM1, LL_HRTIM_TIMER_A,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_FIXED_CMP4_FRACTION);
+        }    break;
+
+        case BSP_HRTIM_MODE_BOOSTBUCK:
+        {
+            LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_B,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_FIXED_CMP3_FRACTION);
+            LL_HRTIM_TIM_SetCompare4(HRTIM1, LL_HRTIM_TIMER_B,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_FIXED_CMP4_FRACTION);
+            LL_HRTIM_TIM_SetCompare4(HRTIM1, LL_HRTIM_TIMER_A,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_REGULATED_CMP4_FRACTION);
+
+            if(adc_fdb.B.V < BSP_HRTIM_BOOST_VB_THRESHOLD_V)
             {
-                s_buck_boost_mode = false;
+                LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_A,
+                                         BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_BOOST_CMP3_FRACTION);
             }
-        }
-        else if(generalized_duty > BSP_HRTIM_BUCK_BOOST_ENTER_MIN
-                && generalized_duty < BSP_HRTIM_BUCK_BOOST_ENTER_MAX)
-        {
-            s_buck_boost_mode = true;
-        }
+            else
+            {
+                LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_A,
+                                         BSP_HRTIM_PERIOD_COUNT *
+                                         (1.0f - (adc_fdb.A.V * BSP_HRTIM_BOOSTBUCK_CHASSIS_DUTY) /
+                                          BSP_HRTIM_BOOST_DUTY_LIMIT_V));
+            }
+            /* 由电感伏秒平衡 D_A * V_A = D_B * V_B 估算 B 端占空比。 */
+        }    break;
 
-        /* 两种分配均保持理想上管占空比之比 D_chassis / D_cap = generalized_duty。 */
-        if(s_buck_boost_mode)
+        case BSP_HRTIM_MODE_BOOST:
         {
-            chassis_upper_duty = BSP_HRTIM_BUCK_BOOST_SCALE * (generalized_duty + 1.0f);
-            cap_upper_duty = BSP_HRTIM_BUCK_BOOST_SCALE * (1.0f / generalized_duty + 1.0f);
-        }
-        else if(generalized_duty < 1.0f)
+            LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_B, 0U);
+            LL_HRTIM_TIM_SetCompare4(HRTIM1, LL_HRTIM_TIMER_A,
+                                     BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_REGULATED_CMP4_FRACTION);
+
+            if(adc_fdb.B.V < BSP_HRTIM_BOOST_VB_THRESHOLD_V)
+            {
+                LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_A,
+                                         BSP_HRTIM_PERIOD_COUNT * BSP_HRTIM_BOOST_CMP3_FRACTION);
+            }
+            else
+            {
+                LL_HRTIM_TIM_SetCompare3(HRTIM1, LL_HRTIM_TIMER_A,
+                                         BSP_HRTIM_PERIOD_COUNT *
+                                         (1.0f - adc_fdb.A.V / BSP_HRTIM_BOOST_DUTY_LIMIT_V));
+            }
+        }    break;
+
+        default:
         {
-            chassis_upper_duty = BSP_HRTIM_BASE_UPPER_DUTY * generalized_duty;
-            cap_upper_duty = BSP_HRTIM_BASE_UPPER_DUTY;
-        }
-        else
-        {
-            chassis_upper_duty = BSP_HRTIM_BASE_UPPER_DUTY;
-            cap_upper_duty = BSP_HRTIM_BASE_UPPER_DUTY / generalized_duty;
-        }
-
-        const uint32_t cap_period_count = hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].PERxR;
-        const uint32_t chassis_period_count =
-            hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].PERxR;
-
-        /*
-         * CH1 接下管，中心窗口宽度为 P * (1 - D_upper)，故 CMP1 = P * D_upper / 2。
-         * 正值加 0.5 后截断实现四舍五入，CMP2 用整数相减保持关于周期中点对称。
-         * 这里是理想几何关系，不将死区计数直接当作上管导通时间补偿。
-         */
-        const uint32_t cap_compare_start_count =
-            (uint32_t)((float)cap_period_count * 0.5f * cap_upper_duty + 0.5f);
-        const uint32_t cap_compare_end_count = cap_period_count - cap_compare_start_count;
-        const uint32_t chassis_compare_start_count =
-            (uint32_t)((float)chassis_period_count * 0.5f * chassis_upper_duty + 0.5f);
-        const uint32_t chassis_compare_end_count = chassis_period_count - chassis_compare_start_count;
-
-        hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP1xR = cap_compare_start_count;
-        hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP2xR = cap_compare_end_count;
-        hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP1xR = chassis_compare_start_count;
-        hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP2xR = chassis_compare_end_count;
+        }    break;
     }
 }
 
-void BspHrtim_EnableOutput(void)
-{
-    if(HAL_HRTIM_WaveformOutputStart(&hhrtim1, BSP_HRTIM_POWER_OUTPUT_MASK) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-void BspHrtim_DisableOutput(void)
-{
-    if(HAL_HRTIM_WaveformOutputStop(&hhrtim1, BSP_HRTIM_POWER_OUTPUT_MASK) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-bool BspHrtim_IsPowerOutputEnabled(void)
-{
-    return (hhrtim1.Instance->sCommonRegs.ODSR & BSP_HRTIM_POWER_OUTPUT_MASK) == 0U;
-}
-
-void BspHrtim_TripPowerOutput(void)
-{
-    /* ODISR 为写 1 关断命令寄存器，对应 ODSR 的相同四个位。 */
-    hhrtim1.Instance->sCommonRegs.ODISR = BSP_HRTIM_POWER_OUTPUT_MASK;
-}

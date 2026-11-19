@@ -7,6 +7,11 @@
 
 #include "fdcan.h"
 
+/** @brief Taurus 过滤列表终止值，超出标准 ID 范围。 */
+#define BSP_CAN_ID_END (0xFFFU)
+/** @brief 本工程 G4 HAL 固定的每个 RX FIFO 深度，来源 SRAMCAN_RF0/1_NBR。 */
+#define BSP_CAN_RX_FIFO_DEPTH (3U)
+
 /**
  * @brief 配置双 ID 精确过滤并启动唯一 FDCAN1。
  * @param[in,out] hfdcanx 已由 CubeMX 初始化的 FDCAN1，标准过滤器数量须足够。

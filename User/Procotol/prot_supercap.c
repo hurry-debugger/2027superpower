@@ -7,8 +7,8 @@
 
 #include "bsp_can.h"
 #include "bsp_analog.h"
-#include "error.h"
 #include "power_ctrl.h"
+#include "stm32g4xx_hal_hrtim.h"
 
 #include <float.h>
 #include <string.h>
@@ -33,8 +33,7 @@ void SupercapCan_SendStatus(void)
 {
     float cap_voltage_v;
     float chassis_current_a;
-    ErrorGroup_t auto_errors;
-    ErrorLevel_e error_level;
+    uint32_t hrtim_faults;
     PowerCtrlState_e state;
     uint8_t faults = 0U;
     uint8_t wire_state = SUPERCAP_CAN_STATE_PROTECT;
@@ -45,20 +44,17 @@ void SupercapCan_SendStatus(void)
     __DMB();
     cap_voltage_v = adc_fdb.B.V;
     chassis_current_a = adc_fdb.A.I;
-    auto_errors.flags.all = g_error.auto_recover.flags.all;
-    error_level = Error_GetLevel();
+    hrtim_faults = PowerCtrl_ReadHrtimFaults();
     state = g_power_ctrl.state;
     __DMB();
     __set_PRIMASK(primask);
 
-    /* 内部字段按电压异常命名，线上仍显式映射原故障位；其他原因由 PROTECT 体现。 */
-    if(auto_errors.flags.bits.cap_voltage || auto_errors.flags.bits.b_overvoltage)
+    /* FLT3/5 对应旧协议的两路过压位，过流通过 PROTECT 状态体现。 */
+    if((hrtim_faults & HRTIM_FLAG_FLT5) != 0U)
         faults |= SUPERCAP_CAN_FAULT_CAP_OVERVOLTAGE;
-    if(auto_errors.flags.bits.chassis_voltage || auto_errors.flags.bits.a_overvoltage)
+    if((hrtim_faults & HRTIM_FLAG_FLT3) != 0U)
         faults |= SUPERCAP_CAN_FAULT_CHASSIS_OVERVOLTAGE;
-    if(auto_errors.flags.bits.bat_voltage)
-        faults |= SUPERCAP_CAN_FAULT_BAT_UNDERVOLTAGE;
-    if(state == CTRL_MODE && error_level == ERROR_NONE)
+    if(state == CTRL_MODE && hrtim_faults == 0U)
         wire_state = SUPERCAP_CAN_STATE_NORMAL;
     SupercapCan_SendFeedback(cap_voltage_v, chassis_current_a, faults, wire_state);
 }

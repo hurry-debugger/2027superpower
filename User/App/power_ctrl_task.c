@@ -1,6 +1,6 @@
 /**
  * @file power_ctrl_task.c
- * @brief HRTIM 采样、DAC 更新和故障保护调度及旧整机初始化入口。
+ * @brief 超电初始化及 HRTIM 采样、DAC 更新和故障保护调度。
  */
 #include "power_ctrl_task.h"
 
@@ -9,33 +9,38 @@
 #include "bsp_dwt.h"
 #include "bsp_hrtim.h"
 #include "bsp_usart.h"
-#include "error.h"
 #include "hrtim.h"
 #include "power_ctrl.h"
-#include "prot_supercap.h"
 
 void SuperPower_Init(void)
 {
-    BspHrtim_DisableOutput();
-
+    LL_HRTIM_DisableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
     BoardInfo_Init();
-
     Bsp_DWT_Init();
-
     BspAnalog_Init();
-    USER_UART_Init();
-    SupercapCan_Init();
-
     PowerCtrl_Init();
+    USER_UART_Init();
 
-    HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B);
+    if(HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    __HAL_HRTIM_ENABLE_IT(&hhrtim1, hhrtim1.Init.HRTIMInterruptResquests);
+    __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1,
+                                 hhrtim1.TimerParam[HRTIM_TIMERINDEX_MASTER].InterruptRequests);
+    __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_TIM_IT_REP);
+    if(HAL_HRTIM_WaveformCountStart(
+           &hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 /**
- * @brief Master 每 16 us 调度采样与快速保护，Timer A 每 1 ms 调度低频任务。
+ * @brief Master 每 16 us 调度采样与控制，Timer A 每 1 ms 调度 Fault 恢复检查。
  * @param[in] hhrtim 产生事件的 HRTIM 句柄。
  * @param[in] timer_index 产生重复事件的计数器索引。
- * @note HAL 已清除重复事件标志。Master 先发布反馈，再检查保护并更新 DAC。
+ * @note HAL 已清除重复事件标志。Master 先发布反馈，再执行控制任务。
  */
 void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t timer_index)
 {
@@ -44,45 +49,47 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
         if(timer_index == HRTIM_TIMERINDEX_MASTER)
         {
             BspAdcFeedback_Process();
-            Error_CheckFast();
-            BspAnalog_UpdateDacFromAdc();
+            PowerCtrl_Task();
         }
         else if(timer_index == HRTIM_TIMERINDEX_TIMER_A)
-            Error_Update1ms();
+        {
+            TimerA_1ms_buffer_loop_calculate();
+            PowerCtrl_TryRecoverFault();
+        }
     }
 }
 
-/** @brief HRTIM1 FLT1 回调，HAL 清标志后记录A 侧过流。 */
+/** @brief HRTIM1 FLT1 回调，HAL 清标志后记录 A 侧过流。 */
 void HAL_HRTIM_Fault1Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
-    Error_RecordHrtimFault(HRTIM_FLAG_FLT1);
+    PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT1);
 }
 
 /** @brief HRTIM1 FLT2 回调，HAL 清标志后记录电池入口过流。 */
 void HAL_HRTIM_Fault2Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
-    Error_RecordHrtimFault(HRTIM_FLAG_FLT2);
+    PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT2);
 }
 
-/** @brief HRTIM1 FLT3 回调，HAL 清标志后记录A 侧过压。 */
+/** @brief HRTIM1 FLT3 回调，HAL 清标志后记录 A 侧过压。 */
 void HAL_HRTIM_Fault3Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
-    Error_RecordHrtimFault(HRTIM_FLAG_FLT3);
+    PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT3);
 }
 
-/** @brief HRTIM1 FLT4 回调，HAL 清标志后记录B 侧过流。 */
+/** @brief HRTIM1 FLT4 回调，HAL 清标志后记录 B 侧过流。 */
 void HAL_HRTIM_Fault4Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
-    Error_RecordHrtimFault(HRTIM_FLAG_FLT4);
+    PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT4);
 }
 
-/** @brief HRTIM1 FLT5 回调，HAL 清标志后记录B 侧过压。 */
+/** @brief HRTIM1 FLT5 回调，HAL 清标志后记录 B 侧过压。 */
 void HAL_HRTIM_Fault5Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
-    Error_RecordHrtimFault(HRTIM_FLAG_FLT5);
+    PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT5);
 }

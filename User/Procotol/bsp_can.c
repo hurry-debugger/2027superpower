@@ -7,11 +7,6 @@
 
 #include <stddef.h>
 
-/** @brief Taurus 过滤列表终止值，超出标准 ID 范围。 */
-#define BSP_CAN_ID_END (0xFFFU)
-/** @brief 本工程 G4 HAL 固定的每个 RX FIFO 深度，来源 SRAMCAN_RF0/1_NBR。 */
-#define BSP_CAN_RX_FIFO_DEPTH (3U)
-
 static void (*s_rx_callback)(uint32_t, uint8_t *);
 
 static void BspCan_ReadFifo(FDCAN_HandleTypeDef *hfdcanx, uint32_t fifo);

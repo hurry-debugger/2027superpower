@@ -50,15 +50,40 @@
 /** @brief B 路电流偏置，单位 A；参考源为 V1.3 的 U7。 */
 #define BSP_ADC_I_B_BIAS_A (-BSP_ADC_I_B_ZERO_V / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
 
+/* ==================== ADC 看门狗阈值 ==================== */
+
+/**
+ * @brief 港科 RM2025 保护设定按本板 V1.3 标称参数换算后的 ADC 看门狗阈值字段。
+ * @details 电流理论码 = (零点 + 电流 × 20 V/V × 0.003 Ω) × 4095 / 3.3 V，
+ *          A 侧和电池入口取 U6 的 1.65 V 零点，B 侧取 U7 的 1.65 V 零点。
+ *          电压理论码 = (输入电压 / 16) × 4095 / 3.3 V，电压下界取 ADC 零码。
+ * @note AWD1 比较 12 位原始码，下界向上取整，上界向下取整。
+ *       AWD2/3 比较高 8 位，字段值 k 对应原始码 16k 到 16k + 15。
+ *       下界取满足 16k ≥ 理论下界的最小 k，上界取满足 16k + 15 ≤ 理论上界的最大 k。
+ *       实际触发值待上板校验。
+ */
+#define BSP_ADC_AWD_I_A_LOW_CODE (559U)    /**< -20.0 A，理论码 558.41，向上取整。 */
+#define BSP_ADC_AWD_I_A_HIGH_CODE (3536U)  /**< +20.0 A，理论码 3536.59，向下取整。 */
+#define BSP_ADC_AWD_I_BAT_LOW_CODE (98U)   /**< -6.5 A，理论码 1563.55，整组起码 1568。 */
+#define BSP_ADC_AWD_I_BAT_HIGH_CODE (157U) /**< +6.5 A，理论码 2531.45，整组末码 2527。 */
+#define BSP_ADC_AWD_V_A_LOW_CODE (0U)      /**< A 侧电压下界取 ADC 零码。 */
+#define BSP_ADC_AWD_V_A_HIGH_CODE (139U)   /**< 29.0 V，理论码 2249.15，整组末码 2239。 */
+#define BSP_ADC_AWD_I_B_LOW_CODE (149U)    /**< -25.5 A，理论码 148.91，向上取整。 */
+#define BSP_ADC_AWD_I_B_HIGH_CODE (3946U)  /**< +25.5 A，理论码 3946.09，向下取整。 */
+#define BSP_ADC_AWD_V_B_LOW_CODE (0U)      /**< B 侧电压下界取 ADC 零码。 */
+#define BSP_ADC_AWD_V_B_HIGH_CODE (146U)   /**< 30.5 V，理论码 2365.48，整组末码 2351。 */
+
 /* ==================== DAC 锯齿 ==================== */
 
 /** @brief DAC 12 位码数，单位为计数；来源为 STM32G4 参考手册。 */
 #define BSP_ANALOG_DAC_CODE_COUNT (4096U)
 /**
  * @brief DAC 锯齿步进码，取自《斜坡补偿参数计算》截图选点，12.4 定点为 14.375 计数/步。
- * @note 截图的次谐波稳定性结论仅适用于参考参数和所列工况；本板尚未上板验证。
+ * @note 本板斜坡补偿效果待上板验证。
  */
 #define BSP_ANALOG_DAC_STEP_CODE (230U)
+/** @brief 电感半纹波偏置，单位 A；首版沿用港科 RM2025 上场版的 1.25 A，待本板实测。 */
+#define BSP_ANALOG_DAC_HALF_RIPPLE_A (1.25f)
 
 /* ==================== 旧五路兼容参数 ==================== */
 
@@ -145,7 +170,7 @@ typedef struct
 extern BspAdcFeedback_t adc_fdb;
 
 /**
- * @brief 自校准并启动 OPAMP，准备并启动 DAC 和 COMP，再校准 ADC1/2 并启动双 ADC DMA。
+ * @brief 自校准并启动 OPAMP，准备并启动 DAC 和 COMP，再校准 ADC1/2、设置看门狗并启动双 ADC DMA。
  * @pre CubeMX 外设初始化完成，SysTick 正常运行，HRTIM Master/A/B 尚未启动，功率输出关闭。
  * @note 仅启动阶段调用一次。HAL 调用失败进入 Error_Handler()。
  */
@@ -160,15 +185,13 @@ void BspAnalog_Init(void);
 void BspAdcFeedback_Process(void);
 
 /**
- * @brief 直接读取 adc_fdb.A.I/B.I（单位 A），更新 DAC1 CH2/CH1 的锯齿复位码。
- * @pre CubeMX 已配置 DAC 通道及触发源，功率输出关闭。
- * @pre 启动时由 BspAnalog_Init() 在 ADC 反馈首次写入前调用，使用零初始化电流；
- *      运行时仅在 Master 回调发布本轮 ADC 反馈后调用。
- * @pre 电流换算结果须满足 HAL 的 0 至 4095 复位码范围，本函数不作限幅或有效性判断。
- * @note 按 4096 计数换算并截断小数，ADC 满量程可能得到 4096，不自动修正。
- * @note A 路为 CH2/COMP2，B 路为 CH1/COMP3；A 路写入失败时跳过 B 路。
- * @note 不重配触发源，不把实测电流作为闭环峰值目标。HAL 调用失败进入 Error_Handler()。
+ * @brief 更新 DAC1 CH2 峰值和 CH1 谷值的锯齿复位码。
+ * @param[in] inductor_target_a 有限的有符号电感电流目标，单位 A，充电为正。
+ * @pre CubeMX 已配置 DAC1 两路的 HRTIM 复位与步进触发。
+ * @pre 启动时在 DAC 使能前调用，运行时仅由 Master 调用。
+ * @note CH2 加半纹波偏置并递增，CH1 减半纹波偏置并递减。两路使用相同的步进码，
+ *       各自在 HRTIM 复位触发时装载复位码。
  */
-void BspAnalog_UpdateDacFromAdc(void);
+void BspAnalog_UpdateDacTarget(float inductor_target_a);
 
 #endif /* SUPERPOWER_BSP_ANALOG_H */

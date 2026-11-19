@@ -7,6 +7,7 @@
 #include "data_scope.h"
 #include "power_ctrl.h"
 #include "bsp_analog.h"
+#include "bsp_hrtim.h"
 
 volatile DebugWave_e g_debug_wave = DEBUG_WAVE_CURRENT;
 
@@ -17,19 +18,18 @@ void DataWavePkg(void)
     {
         case DEBUG_WAVE_CURRENT:
         {
-            DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Target);
+            DataScope_Get_Channel_Data(g_power_ctrl.power_pid.Output);
             DataScope_Get_Channel_Data(adc_fdb.A.I);
-            DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Output);
-            DataScope_Get_Channel_Data(g_power_ctrl.generalized_duty);
+            DataScope_Get_Channel_Data(adc_fdb.B.I);
             DataScope_Get_Channel_Data(adc_fdb.A.V);
             DataScope_Get_Channel_Data(adc_fdb.B.V);
         }    break;
 
         case DEBUG_WAVE_CURRENT_VOLTAGE:
         {
-            DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Target);
-            DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Measure);
-            DataScope_Get_Channel_Data(g_power_ctrl.current_pid.Output);
+            DataScope_Get_Channel_Data(g_power_ctrl.power_pid.Output);
+            DataScope_Get_Channel_Data(adc_fdb.A.I);
+            DataScope_Get_Channel_Data(adc_fdb.B.I);
             DataScope_Get_Channel_Data(g_power_ctrl.voltage_pid.Target);
             DataScope_Get_Channel_Data(g_power_ctrl.voltage_pid.Measure);
             DataScope_Get_Channel_Data(g_power_ctrl.voltage_pid.Output);
@@ -37,8 +37,8 @@ void DataWavePkg(void)
 
         case DEBUG_WAVE_POWER:
         {
-            DataScope_Get_Channel_Data(g_power_ctrl.power_pid.Target);
-            DataScope_Get_Channel_Data(g_power_ctrl.power_pid.Measure);
+            DataScope_Get_Channel_Data(g_power_ctrl.ref_power_target_w);
+            DataScope_Get_Channel_Data(g_power_ctrl.ref_power_fdb_w);
             DataScope_Get_Channel_Data(g_power_ctrl.power_pid.Output);
         }    break;
 

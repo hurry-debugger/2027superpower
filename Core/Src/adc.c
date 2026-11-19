@@ -85,7 +85,7 @@ void MX_ADC1_Init(void)
   AnalogWDGConfig.ITMode = DISABLE;
   AnalogWDGConfig.HighThreshold = 0;
   AnalogWDGConfig.LowThreshold = 0;
-  AnalogWDGConfig.FilteringConfig = ADC_AWD_FILTERING_8SAMPLES;
+  AnalogWDGConfig.FilteringConfig = ADC_AWD_FILTERING_NONE;
   if (HAL_ADC_AnalogWDGConfig(&hadc1, &AnalogWDGConfig) != HAL_OK)
   {
     Error_Handler();
@@ -136,7 +136,6 @@ void MX_ADC1_Init(void)
   AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_2;
   AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_SINGLE_REGINJEC;
   AnalogWDGConfig.Channel = ADC_CHANNEL_8;
-  AnalogWDGConfig.FilteringConfig = ADC_AWD_FILTERING_NONE;
   if (HAL_ADC_AnalogWDGConfig(&hadc1, &AnalogWDGConfig) != HAL_OK)
   {
     Error_Handler();

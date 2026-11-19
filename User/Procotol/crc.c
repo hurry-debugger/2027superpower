@@ -99,10 +99,6 @@ static const uint16_t s_crc_ccitt_table[256] =
     0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78,
 };
 
-/** @brief CRC 初值沿用 Taurus 源工程，无最终异或。 */
-#define CRC8_INITIAL_VALUE (0xffU)
-#define CRC16_INITIAL_VALUE (0xffffU)
-
 /* ==================== 公共接口 ==================== */
 
 uint8_t crc8_get_checksum(uint8_t *pdata, uint16_t length, uint8_t crc8)

@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+/** @brief CRC 初值沿用 Taurus 源工程，无最终异或。 */
+#define CRC8_INITIAL_VALUE (0xffU)
+#define CRC16_INITIAL_VALUE (0xffffU)
+
 /**
  * @brief 计算 CRC8，读取 length 字节，不写入输入。
  * @param[in] pdata 非空且至少含 length 字节的稳定缓冲区。
