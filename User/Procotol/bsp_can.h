@@ -1,6 +1,6 @@
 /**
  * @file bsp_can.h
- * @brief 由 Taurus BSP 适配的单路 FDCAN1 经典 CAN 收发接口。
+ * @brief 由 Taurus BSP 适配的单路 FDCAN2 经典 CAN 收发接口。
  */
 #ifndef SUPERPOWER_BSP_CAN_H
 #define SUPERPOWER_BSP_CAN_H
@@ -13,8 +13,8 @@
 #define BSP_CAN_RX_FIFO_DEPTH (3U)
 
 /**
- * @brief 配置双 ID 精确过滤并启动唯一 FDCAN1。
- * @param[in,out] hfdcanx 已由 CubeMX 初始化的 FDCAN1，标准过滤器数量须足够。
+ * @brief 配置双 ID 精确过滤并启动唯一 FDCAN2。
+ * @param[in,out] hfdcanx 已由 CubeMX 初始化的 FDCAN2，标准过滤器数量须足够。
  * @param[in] fdcanx_id 以 0xFFF 结束的标准 ID 数组；最后一个单 ID 自动成对。
  * @param[in] callback 中断接收回调；数据为补零至 8 字节的临时数组，不得保存指针。
  * @pre 仅在启动阶段、功率输出关闭时调用一次；ID 范围 0～0x7FF。
@@ -25,7 +25,7 @@ void Fdcanx_Init(FDCAN_HandleTypeDef *hfdcanx, const uint32_t fdcanx_id[],
 
 /**
  * @brief 尝试发送一帧标准经典 CAN，固定 8 字节，不等待、不重试。
- * @param[in,out] hfdcanx 已启动的 FDCAN1。
+ * @param[in,out] hfdcanx 已启动的 FDCAN2。
  * @param[in] tx_id 标准 ID，范围 0～0x7FF。
  * @param[in] tx_data 至少 8 字节，HAL 调用结束前稳定。
  * @return 沿用 Taurus 的 HAL 状态：成功入队为 HAL_OK，队列满为 HAL_BUSY。

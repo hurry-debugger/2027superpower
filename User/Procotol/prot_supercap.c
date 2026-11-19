@@ -25,7 +25,7 @@ void SupercapCan_Init(void)
 {
     static const uint32_t ids[] = {SUPERCAP_CAN_RX_MODE_ID, 0xFFFU};
 
-    Fdcanx_Init(&hfdcan1, ids, SupercapCan_Receive);
+    Fdcanx_Init(&hfdcan2, ids, SupercapCan_Receive);
 }
 
 void SupercapCan_SendStatus(void)
@@ -87,7 +87,7 @@ static void SupercapCan_EncodeFloat(uint8_t *data, float value)
 
 static void SupercapCan_Send(uint32_t id, uint8_t *data)
 {
-    HAL_StatusTypeDef status = Fdcanx_Transmit(&hfdcan1, id, data);
+    HAL_StatusTypeDef status = Fdcanx_Transmit(&hfdcan2, id, data);
     if(status == HAL_BUSY)
         g_supercap_can.tx_busy_count++;
     else if(status != HAL_OK)

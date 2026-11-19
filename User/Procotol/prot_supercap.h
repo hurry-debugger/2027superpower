@@ -30,7 +30,7 @@ typedef struct
 
 extern SupercapCan_t g_supercap_can;
 
-/** @brief 启动前清零协议状态，使用 Taurus BSP 绑定并启动 FDCAN1。 */
+/** @brief 启动前清零协议状态，使用 Taurus BSP 绑定并启动 FDCAN2。 */
 void SupercapCan_Init(void);
 /**
  * @brief 取得反馈与控制状态的一致快照，映射旧协议后发送测量和状态帧。
