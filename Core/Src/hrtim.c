@@ -105,6 +105,7 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   pEventCfg.Source = HRTIM_EEV8SRC_COMP3_OUT;
+  pEventCfg.Polarity = HRTIM_EVENTPOLARITY_LOW;
   if (HAL_HRTIM_EventConfig(&hhrtim1, HRTIM_EVENT_8, &pEventCfg) != HAL_OK)
   {
     Error_Handler();
@@ -121,23 +122,14 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pFaultBlkCfg.Threshold = 2;
-  pFaultBlkCfg.ResetMode = HRTIM_FAULTCOUNTERRST_UNCONDITIONAL;
-  pFaultBlkCfg.BlankingSource = HRTIM_FAULTBLANKINGMODE_RSTALIGNED;
+  pFaultBlkCfg.Threshold = 0;
+  pFaultBlkCfg.ResetMode = HRTIM_FAULTCOUNTERRST_CONDITIONAL;
   if (HAL_HRTIM_FaultCounterConfig(&hhrtim1, HRTIM_FAULT_1, &pFaultBlkCfg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_HRTIM_FaultBlankingConfigAndEnable(&hhrtim1, HRTIM_FAULT_1, &pFaultBlkCfg) != HAL_OK)
   {
     Error_Handler();
   }
   HAL_HRTIM_FaultModeCtl(&hhrtim1, HRTIM_FAULT_1, HRTIM_FAULTMODECTL_ENABLED);
   if (HAL_HRTIM_FaultCounterConfig(&hhrtim1, HRTIM_FAULT_2, &pFaultBlkCfg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_HRTIM_FaultBlankingConfigAndEnable(&hhrtim1, HRTIM_FAULT_2, &pFaultBlkCfg) != HAL_OK)
   {
     Error_Handler();
   }
@@ -150,10 +142,6 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_HRTIM_FaultBlankingConfigAndEnable(&hhrtim1, HRTIM_FAULT_3, &pFaultBlkCfg) != HAL_OK)
-  {
-    Error_Handler();
-  }
   if (HAL_HRTIM_FaultConfig(&hhrtim1, HRTIM_FAULT_3, &pFaultCfg) != HAL_OK)
   {
     Error_Handler();
@@ -163,20 +151,12 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_HRTIM_FaultBlankingConfigAndEnable(&hhrtim1, HRTIM_FAULT_4, &pFaultBlkCfg) != HAL_OK)
-  {
-    Error_Handler();
-  }
   if (HAL_HRTIM_FaultConfig(&hhrtim1, HRTIM_FAULT_4, &pFaultCfg) != HAL_OK)
   {
     Error_Handler();
   }
   HAL_HRTIM_FaultModeCtl(&hhrtim1, HRTIM_FAULT_4, HRTIM_FAULTMODECTL_ENABLED);
   if (HAL_HRTIM_FaultCounterConfig(&hhrtim1, HRTIM_FAULT_5, &pFaultBlkCfg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_HRTIM_FaultBlankingConfigAndEnable(&hhrtim1, HRTIM_FAULT_5, &pFaultBlkCfg) != HAL_OK)
   {
     Error_Handler();
   }
@@ -333,7 +313,7 @@ void MX_HRTIM1_Init(void)
   }
   pOutputCfg.Polarity = HRTIM_OUTPUTPOLARITY_HIGH;
   pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMCMP3|HRTIM_OUTPUTSET_EEV_8;
-  pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_TIMCMP1;
+  pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_MASTERPER;
   pOutputCfg.IdleMode = HRTIM_OUTPUTIDLEMODE_NONE;
   pOutputCfg.IdleLevel = HRTIM_OUTPUTIDLELEVEL_INACTIVE;
   pOutputCfg.FaultLevel = HRTIM_OUTPUTFAULTLEVEL_INACTIVE;
@@ -344,6 +324,7 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   pOutputCfg.SetSource = HRTIM_OUTPUTSET_EEV_6|HRTIM_OUTPUTSET_TIMCMP3;
+  pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_MASTERCMP2;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_B, HRTIM_OUTPUT_TB1, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
