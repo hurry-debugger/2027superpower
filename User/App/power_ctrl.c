@@ -20,7 +20,7 @@ static void PowerCtrl_CalculateCurrentTarget(void);
 static void PowerCtrl_CurrentTargetLimit(void);
 static void PowerCtrl_ResetLoops(void);
 
-static volatile error_t s_error; /**< Fault 与 Timer A 共享的故障锁存及重试计时。 */
+error_t s_error; /**< Fault 与 Timer A 共享的故障锁存及重试计时。 */
 PowerCtrl_t g_power_ctrl;
 /* ==================== 公共入口 ==================== */
 

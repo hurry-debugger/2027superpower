@@ -35,7 +35,7 @@ void SuperPower_Init(void)
         Error_Handler();
     }
 }
-
+#define OPEN_LOOP
 /**
  * @brief Master 每 16 us 调度采样与控制，Timer A 每 1 ms 调度 Fault 恢复检查。
  * @param[in] hhrtim 产生事件的 HRTIM 句柄。
@@ -46,6 +46,7 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
 {
     if(hhrtim == &hhrtim1)
     {
+#ifdef  CLOSE_LOOP
         if(timer_index == HRTIM_TIMERINDEX_MASTER)
         {
             BspAdcFeedback_Process();
@@ -56,6 +57,10 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
             TimerA_1ms_buffer_loop_calculate();
             PowerCtrl_TryRecoverFault();
         }
+#endif
+#ifdef OPEN_LOOP
+	BspHrtim_SetOpenLoopPwm();
+#endif	
     }
 }
 

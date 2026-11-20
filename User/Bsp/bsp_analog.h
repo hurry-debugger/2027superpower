@@ -5,6 +5,8 @@
 #ifndef SUPERPOWER_BSP_ANALOG_H
 #define SUPERPOWER_BSP_ANALOG_H
 
+#include <stdint.h>
+
 /* ==================== OPAMP 启动 ==================== */
 
 /** @brief OPAMP 起动等待时间，单位 ms，覆盖 LL_OPAMP_DELAY_STARTUP_US 的 6 us。 */
@@ -53,27 +55,102 @@
 /* ==================== ADC 看门狗阈值 ==================== */
 
 /**
- * @brief 本板 V1.3 标称参数及已确认保护范围换算后的 ADC 看门狗阈值字段。
- * @details 电流理论码 = (零点 + 电流 × 20 V/V × 0.003 Ω) × 4095 / 3.3 V，
- *          A 侧和电池入口取 U6 的 1.65 V 零点，B 侧取 U7 的 1.65 V 零点。
- *          电压理论码 = (输入电压 / 16) × 4095 / 3.3 V。
- *          A/ref 并联，A 侧看门狗监测共用的 15～29 V 范围；B 侧下限沿用 2.9 V，
- *          上限沿用港科 RM2025 的 30.5 V。电流阈值同样沿用该参考设定。
- * @note AWD1 比较 12 位原始码，下界向上取整，上界向下取整。
- *       AWD2/3 比较高 8 位，字段值 k 对应原始码 16k 到 16k + 15。
- *       下界取满足 16k ≥ 理论下界的最小 k，上界取满足 16k + 15 ≤ 理论上界的最大 k。
+ * @brief 看门狗物理量阈值，电流单位 A，电压单位 V。
+ * @details A/ref 并联，共用 A 侧电压保护范围。B 侧下限沿用 2.9 V，
+ *          上限和各路电流阈值沿用港科 RM2025 的设置。
+ * @note 电压下限填 0.0f 时，比较字段为 0，调试时可关闭对应欠压触发。
  *       实际触发值待上板校验。
  */
-#define BSP_ADC_AWD_I_A_LOW_CODE (559U)    /**< -20.0 A，理论码 558.41，向上取整。 */
-#define BSP_ADC_AWD_I_A_HIGH_CODE (3536U)  /**< +20.0 A，理论码 3536.59，向下取整。 */
-#define BSP_ADC_AWD_I_BAT_LOW_CODE (98U)   /**< -6.5 A，理论码 1563.55，整组起码 1568。 */
-#define BSP_ADC_AWD_I_BAT_HIGH_CODE (157U) /**< +6.5 A，理论码 2531.45，整组末码 2527。 */
-#define BSP_ADC_AWD_V_A_LOW_CODE (73U)     /**< 15.0 V，理论码 1163.35，整组起码 1168。 */
-#define BSP_ADC_AWD_V_A_HIGH_CODE (139U)   /**< 29.0 V，理论码 2249.15，整组末码 2239。 */
-#define BSP_ADC_AWD_I_B_LOW_CODE (149U)    /**< -25.5 A，理论码 148.91，向上取整。 */
-#define BSP_ADC_AWD_I_B_HIGH_CODE (3946U)  /**< +25.5 A，理论码 3946.09，向下取整。 */
-#define BSP_ADC_AWD_V_B_LOW_CODE (15U)     /**< 2.9 V，理论码 224.91，整组起码 240。 */
-#define BSP_ADC_AWD_V_B_HIGH_CODE (146U)   /**< 30.5 V，理论码 2365.48，整组末码 2351。 */
+#define BSP_ADC_AWD_I_A_LOW_A (-20.0f)
+#define BSP_ADC_AWD_I_A_HIGH_A (20.0f)
+#define BSP_ADC_AWD_I_BAT_LOW_A (-6.5f)
+#define BSP_ADC_AWD_I_BAT_HIGH_A (6.5f)
+#define BSP_ADC_AWD_V_A_LOW_V (15.0f)
+#define BSP_ADC_AWD_V_A_HIGH_V (29.0f)
+#define BSP_ADC_AWD_I_B_LOW_A (-25.5f)
+#define BSP_ADC_AWD_I_B_HIGH_A (25.5f)
+#define BSP_ADC_AWD_V_B_LOW_V (2.9f)
+#define BSP_ADC_AWD_V_B_HIGH_V (30.5f)
+
+/** @brief 按 STM32G4 的比较位宽，每个 AWD1 字段码对应 1 个 12 位原码。 */
+#define BSP_ADC_AWD1_COUNTS_PER_CODE (1U)
+/** @brief 按 STM32G4 的比较位宽，AWD2/3 忽略低 4 位，每个字段码对应 16 个原码。 */
+#define BSP_ADC_AWD23_COUNTS_PER_CODE (16U)
+
+/** @brief 按本板 V1.3 标称采样参数，将电流 A 和通道零点 V 换算为理论原码。 */
+#define BSP_ADC_AWD_I_TO_RAW_COUNT(current_a, zero_v) \
+    (((zero_v) + (current_a) * (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM)) \
+     * (ADC_FULL_SCALE_COUNT / ADC_REFERENCE_V))
+/** @brief 按本板 V1.3 分压及 ADC 参考电压，将输入电压 V 换算为理论原码。 */
+#define BSP_ADC_AWD_V_TO_RAW_COUNT(voltage_v) \
+    ((voltage_v) * (ADC_FULL_SCALE_COUNT / (ADC_REFERENCE_V * BSP_ADC_VOLTAGE_DIVIDER_RATIO)))
+
+/**
+ * @brief 下限向上取整，使字段对应的首个原码不低于理论下限。
+ * @pre raw_count 是 0～ADC_FULL_SCALE_COUNT 内的常量，counts_per_code 为 1 或 16。
+ */
+#define BSP_ADC_AWD_LOWER_CODE(raw_count, counts_per_code) \
+    (((uint32_t)(raw_count) + ((raw_count) > (uint32_t)(raw_count)) + \
+      ((counts_per_code) - 1U)) / (counts_per_code))
+
+/**
+ * @brief 上限向下取整，使字段对应的最后一个原码不高于理论上限。
+ * @pre raw_count 是 counts_per_code - 1 到 ADC_FULL_SCALE_COUNT 内的常量，
+ *      counts_per_code 为 1 或 16。
+ */
+#define BSP_ADC_AWD_UPPER_CODE(raw_count, counts_per_code) \
+    (((uint32_t)(raw_count) - ((counts_per_code) - 1U)) / (counts_per_code))
+
+/**
+ * @brief 判断原码在 ADC 量程内，且取整后的窗口至少包含一组完整比较码。
+ * @note 先检查原码范围，再转换为无符号字段码。
+ */
+#define BSP_ADC_AWD_WINDOW_VALID(low_raw_count, high_raw_count, counts_per_code) \
+    (((low_raw_count) >= 0.0f) && ((low_raw_count) <= (high_raw_count)) \
+     && ((high_raw_count) >= ((counts_per_code) - 1U)) \
+     && ((high_raw_count) <= ADC_FULL_SCALE_COUNT) \
+     && (BSP_ADC_AWD_LOWER_CODE((low_raw_count), (counts_per_code)) \
+         <= BSP_ADC_AWD_UPPER_CODE((high_raw_count), (counts_per_code))))
+
+/** @brief 理论原码，A 侧和电池电流取 U6 零点，B 侧电流取 U7 零点。 */
+#define BSP_ADC_AWD_I_A_LOW_RAW_COUNT \
+    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_A_LOW_A, ADC_I_BAT_ZERO_V)
+#define BSP_ADC_AWD_I_A_HIGH_RAW_COUNT \
+    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_A_HIGH_A, ADC_I_BAT_ZERO_V)
+#define BSP_ADC_AWD_I_BAT_LOW_RAW_COUNT \
+    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_BAT_LOW_A, ADC_I_BAT_ZERO_V)
+#define BSP_ADC_AWD_I_BAT_HIGH_RAW_COUNT \
+    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_BAT_HIGH_A, ADC_I_BAT_ZERO_V)
+#define BSP_ADC_AWD_V_A_LOW_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_A_LOW_V)
+#define BSP_ADC_AWD_V_A_HIGH_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_A_HIGH_V)
+#define BSP_ADC_AWD_I_B_LOW_RAW_COUNT \
+    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_B_LOW_A, BSP_ADC_I_B_ZERO_V)
+#define BSP_ADC_AWD_I_B_HIGH_RAW_COUNT \
+    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_B_HIGH_A, BSP_ADC_I_B_ZERO_V)
+#define BSP_ADC_AWD_V_B_LOW_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_B_LOW_V)
+#define BSP_ADC_AWD_V_B_HIGH_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_B_HIGH_V)
+
+/** @brief 各通道写入 ADC_TR1/2/3 的比较字段值，左右边界包含在允许范围内。 */
+#define BSP_ADC_AWD_I_A_LOW_CODE \
+    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_I_A_LOW_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_I_A_HIGH_CODE \
+    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_I_A_HIGH_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_I_BAT_LOW_CODE \
+    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_I_BAT_LOW_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_I_BAT_HIGH_CODE \
+    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_I_BAT_HIGH_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_V_A_LOW_CODE \
+    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_V_A_LOW_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_V_A_HIGH_CODE \
+    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_V_A_HIGH_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_I_B_LOW_CODE \
+    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_I_B_LOW_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_I_B_HIGH_CODE \
+    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_I_B_HIGH_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_V_B_LOW_CODE \
+    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_V_B_LOW_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
+#define BSP_ADC_AWD_V_B_HIGH_CODE \
+    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_V_B_HIGH_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
 
 /* ==================== DAC 锯齿 ==================== */
 
