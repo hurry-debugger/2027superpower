@@ -67,7 +67,7 @@ void PowerCtrl_Task(void)
                 g_power_ctrl.state = PROTECT_MODE;
             else
             {
-                PowerCtrl_CalculateCurrentTarget();
+//                PowerCtrl_CalculateCurrentTarget();
                 PowerCtrl_CurrentTargetLimit();
 
                 BspHrtim_ModeStateMachine();

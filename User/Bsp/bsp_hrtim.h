@@ -89,6 +89,8 @@ typedef struct
     float voltage_ratio; /**< 本轮电容侧与底盘侧电压比 V_B/V_A，无量纲。 */
 } BspHrtimState_t;
 
+
+extern BspHrtimState_t s_hrtim_state;
 /* ==================== 应用层环路限幅 ==================== */
 
 /**

@@ -15,9 +15,6 @@ typedef enum
     DEBUG_WAVE_ENERGY = 4 /**< 独立打印能量目标 J、反馈 J、输出功率修正 W。 */
 } DebugWave_e;
 
-/** @brief 调试器可修改的打印档位，默认电流环；非法值不发送新帧。 */
-extern volatile DebugWave_e g_debug_wave;
-
 /**
  * @brief 按当前档位将控制或采样记录依次加入本帧。
  * @pre 仅由 DataWave 在保存 PRIMASK 的短临界区内调用，发送缓冲区已空闲。

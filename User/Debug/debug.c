@@ -18,9 +18,14 @@ void DataWavePkg(void)
     {
         case DEBUG_WAVE_CURRENT:
         {
-            DataScope_Get_Channel_Data(g_power_ctrl.power_pid.Output);
+			DataScope_Get_Channel_Data(s_hrtim_state.mode);
+            DataScope_Get_Channel_Data(g_power_ctrl.inducotor_current_target_a);
+			
+            DataScope_Get_Channel_Data(adc_fdb.ref.I);
             DataScope_Get_Channel_Data(adc_fdb.A.I);
             DataScope_Get_Channel_Data(adc_fdb.B.I);
+			
+            DataScope_Get_Channel_Data(adc_fdb.ref.V);
             DataScope_Get_Channel_Data(adc_fdb.A.V);
             DataScope_Get_Channel_Data(adc_fdb.B.V);
         }    break;

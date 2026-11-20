@@ -12,7 +12,7 @@
 /* ==================== 私有定义 ==================== */
 
 /** @brief 保存模式迟滞历史及本轮电压比，由 Master 回调更新。 */
-static BspHrtimState_t s_hrtim_state = {.mode = BSP_HRTIM_MODE_BUCK};
+BspHrtimState_t s_hrtim_state = {.mode = BSP_HRTIM_MODE_BUCK};
 
 /* ==================== 私有声明 ==================== */
 

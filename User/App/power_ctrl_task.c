@@ -12,6 +12,7 @@
 #include "hrtim.h"
 #include "power_ctrl.h"
 #include "power_ctrl_config.h"
+#include "data_scope.h"
 
 void SuperPower_Init(void)
 {
@@ -49,13 +50,24 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
 #ifdef  CLOSE_LOOP
         if(timer_index == HRTIM_TIMERINDEX_MASTER)
         {
+			Bsp_DWT_Stop(0);
+			Bsp_DWT_Start(0);
+			
+            Bsp_DWT_Start(1);
             BspAdcFeedback_Process();
             PowerCtrl_Task();
+            Bsp_DWT_Stop(1);
         }
         else if(timer_index == HRTIM_TIMERINDEX_TIMER_A)
         {
+			Bsp_DWT_Stop(2);
+			Bsp_DWT_Start(2);
+			
+            Bsp_DWT_Start(3);
             TimerA_1ms_buffer_loop_calculate();
             PowerCtrl_TryRecoverFault();
+			DataWave(&huart1);
+            Bsp_DWT_Stop(3);
         }
 #endif
 #ifdef OPEN_LOOP
