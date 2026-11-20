@@ -230,8 +230,7 @@ static void PowerCtrl_CurrentTargetLimit(void)
     else
     {
         g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_KNEE_A;
-        g_power_ctrl.inductor_current_lower_limit_a = -adc_fdb.B.V
-            * (POWER_CTRL_CAP_CURRENT_KNEE_A / POWER_CTRL_CAP_CURRENT_KNEE_V);
+        g_power_ctrl.inductor_current_lower_limit_a = 0.0f;
     }
 
     OUTPUT_LIMIT(g_power_ctrl.inducotor_current_target_a,
