@@ -11,6 +11,7 @@
 #include "bsp_usart.h"
 #include "hrtim.h"
 #include "power_ctrl.h"
+#include "power_ctrl_config.h"
 
 void SuperPower_Init(void)
 {
@@ -35,7 +36,6 @@ void SuperPower_Init(void)
         Error_Handler();
     }
 }
-#define OPEN_LOOP
 /**
  * @brief Master 每 16 us 调度采样与控制，Timer A 每 1 ms 调度 Fault 恢复检查。
  * @param[in] hhrtim 产生事件的 HRTIM 句柄。
@@ -59,6 +59,7 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
         }
 #endif
 #ifdef OPEN_LOOP
+	LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
 	BspHrtim_SetOpenLoopPwm();
 #endif	
     }

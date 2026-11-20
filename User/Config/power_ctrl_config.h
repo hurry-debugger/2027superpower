@@ -5,6 +5,8 @@
  */
 #ifndef SUPERPOWER_POWER_CTRL_CONFIG_H
 #define SUPERPOWER_POWER_CTRL_CONFIG_H
+// CLOSE_LOOP OPEN_LOOP
+#define CLOSE_LOOP
 
 /** @brief Master 每 4 个 PWM 周期重复中断，离散系数按本调用周期定义。 */
 #define POWER_CTRL_PERIOD_US (16U)

@@ -49,7 +49,7 @@ void BspAnalog_Init(void)
     {
         Error_Handler();
     }
-
+	
     BspAnalog_InitAdcWatchdog();
 
     /* 双模式 HAL 同时使能 ADC1 和 ADC2。地址转换仅用于启动 DMA。 */

@@ -6,7 +6,7 @@
 #define SUPERPOWER_BSP_ANALOG_H
 
 #include <stdint.h>
-
+#include "power_ctrl_config.h"
 /* ==================== OPAMP 启动 ==================== */
 
 /** @brief OPAMP 起动等待时间，单位 ms，覆盖 LL_OPAMP_DELAY_STARTUP_US 的 6 us。 */
@@ -65,12 +65,20 @@
 #define BSP_ADC_AWD_I_A_HIGH_A (20.0f)
 #define BSP_ADC_AWD_I_BAT_LOW_A (-6.5f)
 #define BSP_ADC_AWD_I_BAT_HIGH_A (6.5f)
-#define BSP_ADC_AWD_V_A_LOW_V (15.0f)
 #define BSP_ADC_AWD_V_A_HIGH_V (29.0f)
 #define BSP_ADC_AWD_I_B_LOW_A (-25.5f)
 #define BSP_ADC_AWD_I_B_HIGH_A (25.5f)
-#define BSP_ADC_AWD_V_B_LOW_V (2.9f)
 #define BSP_ADC_AWD_V_B_HIGH_V (30.5f)
+
+#ifdef CLOSE_LOOP
+	#define BSP_ADC_AWD_V_B_LOW_V (1.5f)
+	#define BSP_ADC_AWD_V_A_LOW_V (15.0f)
+#endif
+
+#ifdef OPEN_LOOP
+	#define BSP_ADC_AWD_V_B_LOW_V (0.0f)
+	#define BSP_ADC_AWD_V_A_LOW_V (0.0f)
+#endif
 
 /** @brief 按 STM32G4 的比较位宽，每个 AWD1 字段码对应 1 个 12 位原码。 */
 #define BSP_ADC_AWD1_COUNTS_PER_CODE (1U)
