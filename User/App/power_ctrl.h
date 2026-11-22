@@ -9,17 +9,24 @@
 
 #include <stdint.h>
 
-/** @brief HRTIM1 公共 ISR 中已接入的五条 Fault。 */
+/** @brief Timer A 轮询的 HRTIM1 公共 ISR 中的五条 Fault。 */
 #define POWER_CTRL_HRTIM_FAULT_MASK \
     (HRTIM_FLAG_FLT1 | HRTIM_FLAG_FLT2 | HRTIM_FLAG_FLT3 | HRTIM_FLAG_FLT4 | HRTIM_FLAG_FLT5)
 
-/** @brief 软件锁存中 A 端过压明细位，按已发布反馈与 29 V 上界比较。 */
+/** @brief ADC1 的 A 侧电流、电池入口电流和 A 侧电压看门狗标志。 */
+#define POWER_CTRL_ADC1_AWD_MASK (ADC_FLAG_AWD1 | ADC_FLAG_AWD2 | ADC_FLAG_AWD3)
+/** @brief ADC2 的 B 侧电流和电压看门狗标志。 */
+#define POWER_CTRL_ADC2_AWD_MASK (ADC_FLAG_AWD1 | ADC_FLAG_AWD2)
+/** @brief 四种调制模式间最多连续切换三次，用于输出关闭时完成模式选择。 */
+#define POWER_CTRL_HRTIM_MODE_MAX_TRANSITIONS (3U)
+
+/** @brief 软件锁存中 A 端过压明细位，反馈超过 AWD 标称上界。 */
 #define POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE (1U << 5)
-/** @brief 软件锁存中 A/ref 欠压明细位，按已发布 A 端反馈与 15 V 下界比较。 */
+/** @brief 软件锁存中 A 端欠压明细位，反馈低于 AWD 标称下界。 */
 #define POWER_CTRL_FAULT_CHASSIS_UNDERVOLTAGE (1U << 6)
-/** @brief 软件锁存中 B 端过压明细位，按已发布反馈与软件 29 V 上界比较。 */
+/** @brief 软件锁存中 B 端过压明细位，反馈超过 AWD 标称上界。 */
 #define POWER_CTRL_FAULT_CAP_OVERVOLTAGE (1U << 7)
-/** @brief 软件锁存中 B 端欠压明细位，按已发布反馈与 2.9 V 下界比较。 */
+/** @brief 软件锁存中 B 端欠压明细位，反馈低于 AWD 标称下界。 */
 #define POWER_CTRL_FAULT_CAP_UNDERVOLTAGE (1U << 8)
 
 /**
@@ -30,7 +37,7 @@ typedef struct
 {
     union
     {
-        uint32_t all; /**< 低五位为 FLT1～FLT5，bit 5～8 为电压明细，零表示无锁存。 */
+        volatile uint32_t all; /**< Timer A 发布，低五位为 FLT1～FLT5，bit 5～8 为电压明细。 */
         struct
         {
             uint32_t chassis_overcurrent : 1; /**< bit 0，FLT1，A 侧过流。 */
@@ -40,12 +47,12 @@ typedef struct
             uint32_t cap_voltage_fault : 1; /**< bit 4，FLT5，B 侧电压越界，方向可能未知。 */
             uint32_t chassis_overvoltage : 1; /**< bit 5，A 侧反馈超过上界。 */
             uint32_t chassis_undervoltage : 1; /**< bit 6，A 侧反馈低于共用下界。 */
-            uint32_t cap_overvoltage : 1; /**< bit 7，B 侧反馈超过软件上界。 */
+            uint32_t cap_overvoltage : 1; /**< bit 7，B 侧反馈超过 AWD 标称上界。 */
             uint32_t cap_undervoltage : 1; /**< bit 8，B 侧反馈低于下界。 */
             uint32_t reserved : 23; /**< bit 9～31，未使用。 */
         } bits;
     } faults;
-    uint32_t fault_retry_start_ms; /**< 首次关断或最近一次恢复尝试的 tick，单位 ms。 */
+    uint32_t fault_retry_start_ms; /**< 首次锁存或最近一次恢复尝试的 tick，单位 ms。 */
 } error_t;
 
 /** @brief 用户指定状态名；编译测试模式与运行状态彼此独立。 */
@@ -83,34 +90,25 @@ extern PowerCtrl_t g_power_ctrl;
 void PowerCtrl_Init(void);
 
 /**
- * @brief 按 B 端电压限制电感电流目标，更新调制模式和 DAC 峰谷值。
- * @pre 控制环及 HRTIM 已初始化，本周期采样已发布，初始比较值已装载。
- *      由 Master 串行调用，与 Fault 同抢占优先级；控制系数按 16 us 周期定义。
- * @note 电压资格严格高于 25.65 V 进入，低于 24.65 V 退出。
- *       电压环候选先限制为非负，仅在正向充电请求、资格有效且候选严格更小时胜出。
- *       落选环随即复位；无故障锁存并从保护态启用输出时，先写入 0 A DAC 目标。
+ * @brief 保护时关断四路输出并复位控制环，运行时按 B 端电压限幅并更新 DAC 目标。
+ * @pre 仅由 62.5 kHz Master 回调在发布本轮反馈后调用，抢占优先级高于 Timer A。
+ * @note 无故障锁存时，保护态先更新调制并写入 0 A DAC 目标，再进入运行态。
+ *       四路输出由 Timer A 在确认条件满足后使能。
  */
 void PowerCtrl_Task(void);
 
 /**
- * @brief 关闭四路功率输出，锁存触发的 HRTIM Fault，并进入保护态。
- * @param[in] fault_mask HRTIM_FLAG_FLT1～HRTIM_FLAG_FLT5 中本次触发的位。
- * @pre 仅由 HRTIM1 Fault 回调调用，与 Master 同抢占优先级。
- * @note FLT3/5 始终锁存原始电压故障；明细由最近发布的 A/B 电压与软件上下界比较。
- *       反馈不是触发瞬间的快照，未观察到越界时不推测方向，原始故障仍阻止输出。
+ * @brief 轮询 FLT1～FLT5，锁存故障，并在故障期间每隔 1000 ms 检查恢复条件。
+ * @pre 仅由 1 kHz Timer A 回调调用，抢占优先级低于 Master，公用 Fault 中断已关闭。
+ * @pre 运行期已配置的 AWD 和 FLT 标志只由本函数清除。
+ * @note ADC 反馈检查合格时清除硬件标志，下一次轮询确认标志均未再置位才解除锁存。
+ *       解除锁存后的轮询由 Master 先进入运行态，再由本函数复核六路反馈和 HRTIM 状态后使能。
  */
-void PowerCtrl_RecordHrtimFault(uint32_t fault_mask);
-
-/**
- * @brief 每隔 2 s 检查待处理 Fault，满足条件则清除软件锁存。
- * @pre 仅由 1 kHz Timer A 回调调用，优先级低于 Master 和 Fault。
- * @note 清锁存后由 Master 检查输出资格并处理启停。
- */
-void PowerCtrl_TryRecoverFault(void);
+void PowerCtrl_ServiceFault(void);
 
 /**
  * @brief 每隔 1ms 计算能量环输出，若裁判超时则使用固定功率上限。
- * @pre 仅由 1 kHz Timer A 回调调用，优先级低于 Master 和 Fault。
+ * @pre 仅由 1 kHz Timer A 回调调用，抢占优先级低于 Master。
  * @note 裁判超时期间采用固定功率上限，并暂停能量环更新。
  */
 void TimerA_1ms_buffer_loop_calculate(void);

@@ -2,7 +2,7 @@
  * @file power_ctrl.c
  * @brief 能量修正、入口功率调节、电压竞争和 DAC 峰谷值目标。
  * @details 正电流充电、负电流放电；逻辑 A 端为底盘侧，对应 Timer B，逻辑 B 端为电容侧，对应 Timer A。
- * @note HRTIM Fault 负责故障关断，Master 根据锁存和输出资格切换功率级。
+ * @note HRTIM Fault 自动关断四路输出，Timer A 负责故障轮询和输出使能。
  */
 #include "power_ctrl.h"
 
@@ -11,17 +11,25 @@
 #include "power_ctrl_config.h"
 #include "prot_judge.h"
 #include "stm32g4xx_hal.h"
+#include "stm32g4xx_ll_adc.h"
 
 #include <stdbool.h>
+
+/** @brief Timer A 写入故障字和重试时间，Master 与状态上报只读故障字。 */
+static error_t s_error;
+/** @brief Timer A 本次轮询的原始 FLT 位，故障锁存和清标志共用。 */
+static uint32_t s_hrtim_fault_mask;
+
+PowerCtrl_t g_power_ctrl;
 
 /* ==================== 私有声明 ==================== */
 
 static void PowerCtrl_CalculateCurrentTarget(void);
 static void PowerCtrl_CurrentTargetLimit(void);
 static void PowerCtrl_ResetLoops(void);
+static bool PowerCtrl_FeedbackInSafeWindow(void);
+static void PowerCtrl_RecordHrtimFault(void);
 
-error_t s_error; /**< Fault 与 Timer A 共享的故障锁存及重试计时。 */
-PowerCtrl_t g_power_ctrl;
 /* ==================== 公共入口 ==================== */
 
 void PowerCtrl_Init(void)
@@ -56,7 +64,6 @@ void PowerCtrl_Task(void)
             {
                 BspHrtim_ModeStateMachine();
                 BspAnalog_UpdateDacTarget(0.0f);
-//                LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
                 g_power_ctrl.state = CTRL_MODE;
             }
         }    break;
@@ -83,59 +90,26 @@ void PowerCtrl_Task(void)
     // clang-format on
 }
 
-void PowerCtrl_RecordHrtimFault(uint32_t fault_mask)
+void PowerCtrl_ServiceFault(void)
 {
-    LL_HRTIM_DisableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
-    if(s_error.faults.all == 0U)
-        s_error.fault_retry_start_ms = HAL_GetTick();
+    s_error.faults.all |= LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
 
-    if((fault_mask & HRTIM_FLAG_FLT1) != 0U)
-        s_error.faults.bits.chassis_overcurrent = 1U;
-
-    if((fault_mask & HRTIM_FLAG_FLT2) != 0U)
-        s_error.faults.bits.battery_overcurrent = 1U;
-
-    if((fault_mask & HRTIM_FLAG_FLT3) != 0U)
-    {
-        s_error.faults.bits.chassis_voltage_fault = 1U;
-        if(adc_fdb.A.V > POWER_CTRL_A_REF_MAX_V)
-            s_error.faults.bits.chassis_overvoltage = 1U;
-        else if(adc_fdb.A.V < POWER_CTRL_A_REF_MIN_V)
-            s_error.faults.bits.chassis_undervoltage = 1U;
-    }
-
-    if((fault_mask & HRTIM_FLAG_FLT4) != 0U)
-        s_error.faults.bits.cap_overcurrent = 1U;
-
-    if((fault_mask & HRTIM_FLAG_FLT5) != 0U)
-    {
-        s_error.faults.bits.cap_voltage_fault = 1U;
-        /* 明细记录最近发布的反馈；原始 Fault 独立锁存，不依赖反馈是否已越界。 */
-        if(adc_fdb.B.V > POWER_CTRL_OVERVOLTAGE_V)
-            s_error.faults.bits.cap_overvoltage = 1U;
-        else if(adc_fdb.B.V < POWER_CTRL_CAP_MIN_VOLTAGE_V)
-            s_error.faults.bits.cap_undervoltage = 1U;
-    }
-
-    g_power_ctrl.state = PROTECT_MODE;
-}
-
-void PowerCtrl_TryRecoverFault(void)
-{
     if(s_error.faults.all != 0U)
     {
-        const uint32_t primask = __get_PRIMASK();
+        LL_HRTIM_DisableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
+        PowerCtrl_RecordHrtimFault();
+    }
+//  尝试恢复
+    if(s_error.faults.all != 0U && !PowerCtrl_FeedbackInSafeWindow())
+    {
+        s_error.fault_retry_start_ms = HAL_GetTick();
+    }
 
-        /* Fault 可抢占 Timer A。将到期判断、待处理标志检查和清除锁存放在同一临界区。 */
-        __disable_irq();
-        const uint32_t now_ms = HAL_GetTick();
-        if((uint32_t)(now_ms - s_error.fault_retry_start_ms) >= POWER_CTRL_FAULT_RETRY_MS)
-        {
-            s_error.fault_retry_start_ms = now_ms;
-            if((LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK) == 0U)
-                s_error.faults.all = 0U;
-        }
-        __set_PRIMASK(primask);
+    if(PowerCtrl_FeedbackInSafeWindow() && (HAL_GetTick() - s_error.fault_retry_start_ms >= POWER_CTRL_FAULT_RETRY_MS))
+    {
+        s_error.faults.all = 0U;
+        LL_HRTIM_WriteReg(HRTIM1, sCommonRegs.ICR, POWER_CTRL_HRTIM_FAULT_MASK);
+        LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
     }
 }
 
@@ -157,6 +131,45 @@ uint32_t PowerCtrl_ReadFaults(void)
 }
 
 /* ==================== 私有辅助 ==================== */
+
+/**
+ * @brief 用本板看门狗的标称电压和电流窗口判定反馈是否允许恢复。
+ * @pre Timer A 在屏蔽 Master 抢占时调用，直接读取同一批 adc_fdb，单位 V、A。
+ * @return 六路反馈均在含边界的窗口内时为 true，越界或无效值返回 false。
+ */
+static bool PowerCtrl_FeedbackInSafeWindow(void)
+{
+    return adc_fdb.A.V >= BSP_ADC_AWD_V_A_LOW_V
+        && adc_fdb.A.V <= BSP_ADC_AWD_V_A_HIGH_V
+        && adc_fdb.ref.V >= BSP_ADC_AWD_V_A_LOW_V
+        && adc_fdb.ref.V <= BSP_ADC_AWD_V_A_HIGH_V
+        && adc_fdb.B.V >= BSP_ADC_AWD_V_B_LOW_V
+        && adc_fdb.B.V <= BSP_ADC_AWD_V_B_HIGH_V
+        && adc_fdb.A.I >= BSP_ADC_AWD_I_A_LOW_A
+        && adc_fdb.A.I <= BSP_ADC_AWD_I_A_HIGH_A
+        && adc_fdb.ref.I >= BSP_ADC_AWD_I_BAT_LOW_A
+        && adc_fdb.ref.I <= BSP_ADC_AWD_I_BAT_HIGH_A
+        && adc_fdb.B.I >= BSP_ADC_AWD_I_B_LOW_A
+        && adc_fdb.B.I <= BSP_ADC_AWD_I_B_HIGH_A;
+}
+
+/**
+ * @brief 合并原始 Fault 及对应电压的越界明细，发布完整故障字。
+ * @pre 仅由 Timer A 在关闭四路输出、屏蔽 Master 抢占并读出本次原始标志后调用。
+ * @note 反馈可能晚于触发时刻，方向不明时继续保留原始 FLT3/5。
+ */
+static void PowerCtrl_RecordHrtimFault(void)
+{
+    if(adc_fdb.A.V > BSP_ADC_AWD_V_A_HIGH_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE;
+    else if(adc_fdb.A.V < BSP_ADC_AWD_V_A_LOW_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_UNDERVOLTAGE;
+
+    if(adc_fdb.B.V > BSP_ADC_AWD_V_B_HIGH_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CAP_OVERVOLTAGE;
+    else if(adc_fdb.B.V < BSP_ADC_AWD_V_B_LOW_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CAP_UNDERVOLTAGE;
+}
 
 /** @brief 丢弃故障前的三环历史及限幅记录。 */
 static void PowerCtrl_ResetLoops(void)
