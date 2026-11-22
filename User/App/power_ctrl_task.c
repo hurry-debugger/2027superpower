@@ -109,5 +109,9 @@ void HAL_HRTIM_Fault4Callback(HRTIM_HandleTypeDef *hhrtim)
 void HAL_HRTIM_Fault5Callback(HRTIM_HandleTypeDef *hhrtim)
 {
     (void)hhrtim;
+	Bsp_DWT_Stop(4);
+	Bsp_DWT_Start(4);
+	Bsp_DWT_Start(5);
     PowerCtrl_RecordHrtimFault(HRTIM_FLAG_FLT5);
+	Bsp_DWT_Stop(5);
 }

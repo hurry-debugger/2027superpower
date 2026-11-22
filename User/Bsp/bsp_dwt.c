@@ -11,6 +11,7 @@
 
 /**< 各计时槽执行耗时，单位 us。 */
 volatile float g_dwt_us[DWT_SLOT_COUNT];
+volatile float dwt_us;
 
 /* ==================== 私有变量 ==================== */
 
@@ -38,4 +39,9 @@ void Bsp_DWT_Start(uint32_t slot)
 void Bsp_DWT_Stop(uint32_t slot)
 {
     g_dwt_us[slot] = (float)(DWT->CYCCNT - s_start_cycles[slot]) * s_us_per_cycle;
+}
+
+void Bsp_DWT_Update(void)
+{
+	dwt_us = (float)(DWT->CYCCNT) * s_us_per_cycle;
 }

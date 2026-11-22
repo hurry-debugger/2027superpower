@@ -39,5 +39,6 @@ void Bsp_DWT_Start(uint32_t slot);
  * @note 耗时写入 g_dwt_us[slot]，单位 us。
  */
 void Bsp_DWT_Stop(uint32_t slot);
+void Bsp_DWT_Update(void);
 
 #endif /* SUPERPOWER_BSP_DWT_H */

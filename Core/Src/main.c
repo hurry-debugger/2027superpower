@@ -31,6 +31,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "power_ctrl_task.h"
+#include "bsp_dwt.h"
 
 /* USER CODE END Includes */
 
@@ -116,6 +117,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  Bsp_DWT_Update();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

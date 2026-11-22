@@ -56,7 +56,7 @@ void PowerCtrl_Task(void)
             {
                 BspHrtim_ModeStateMachine();
                 BspAnalog_UpdateDacTarget(0.0f);
-                LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
+//                LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
                 g_power_ctrl.state = CTRL_MODE;
             }
         }    break;

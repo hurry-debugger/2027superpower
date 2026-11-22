@@ -8,7 +8,7 @@
 #include "usart.h"
 
 /** @brief 当前电流加电压档最多六路 float，每路四字节。 */
-#define DATA_SCOPE_MAX_CHANNELS 6U
+#define DATA_SCOPE_MAX_CHANNELS 20U
 /** @brief 用户指定的唯一发送缓冲区容量，单位字节；不按容量发送。 */
 #define DATA_SCOPE_TX_BUFFER_SIZE 128U
 /** @brief JustFloat 每通道字节数，协议要求 IEEE 754 binary32。 */

@@ -68,12 +68,11 @@
 #define BSP_ADC_AWD_V_A_HIGH_V (29.0f)
 #define BSP_ADC_AWD_I_B_LOW_A (-25.5f)
 #define BSP_ADC_AWD_I_B_HIGH_A (25.5f)
-#define BSP_ADC_AWD_V_B_HIGH_V (30.5f)
+#define BSP_ADC_AWD_V_B_HIGH_V (29.0f)
 
 #ifdef CLOSE_LOOP
-	#define BSP_ADC_AWD_V_A_LOW_V (0.0f)
-	#define BSP_ADC_AWD_V_B_LOW_V (1.5f)
-//	#define BSP_ADC_AWD_V_A_LOW_V (15.0f)
+	#define BSP_ADC_AWD_V_B_LOW_V (3.0f)
+	#define BSP_ADC_AWD_V_A_LOW_V (15.0f)
 #endif
 
 #ifdef OPEN_LOOP

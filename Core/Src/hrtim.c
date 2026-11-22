@@ -50,9 +50,7 @@ void MX_HRTIM1_Init(void)
 
   /* USER CODE END HRTIM1_Init 1 */
   hhrtim1.Instance = HRTIM1;
-  hhrtim1.Init.HRTIMInterruptResquests = HRTIM_IT_FLT1|HRTIM_IT_FLT2
-                              |HRTIM_IT_FLT3|HRTIM_IT_FLT4
-                              |HRTIM_IT_FLT5;
+  hhrtim1.Init.HRTIMInterruptResquests = HRTIM_IT_NONE;
   hhrtim1.Init.SyncOptions = HRTIM_SYNCOPTION_NONE;
   if (HAL_HRTIM_Init(&hhrtim1) != HAL_OK)
   {
@@ -382,8 +380,6 @@ void HAL_HRTIM_MspInit(HRTIM_HandleTypeDef* hrtimHandle)
     HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
     HAL_NVIC_SetPriority(HRTIM1_TIMA_IRQn, 2, 0);
     HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
-    HAL_NVIC_SetPriority(HRTIM1_FLT_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(HRTIM1_FLT_IRQn);
   /* USER CODE BEGIN HRTIM1_MspInit 1 */
 
   /* USER CODE END HRTIM1_MspInit 1 */
@@ -435,7 +431,6 @@ void HAL_HRTIM_MspDeInit(HRTIM_HandleTypeDef* hrtimHandle)
     /* HRTIM1 interrupt Deinit */
     HAL_NVIC_DisableIRQ(HRTIM1_Master_IRQn);
     HAL_NVIC_DisableIRQ(HRTIM1_TIMA_IRQn);
-    HAL_NVIC_DisableIRQ(HRTIM1_FLT_IRQn);
   /* USER CODE BEGIN HRTIM1_MspDeInit 1 */
 
   /* USER CODE END HRTIM1_MspDeInit 1 */
