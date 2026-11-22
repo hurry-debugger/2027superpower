@@ -18,9 +18,6 @@
 /** @brief 用户指定的裁判超时底盘功率上限，单位 W。 */
 #define POWER_CTRL_JUDGE_OFFLINE_LIMIT_W (35.0f)
 
-/** @brief 软件 Fault 恢复尝试间隔，单位 ms，按本板恢复要求设为 1000 ms。 */
-#define POWER_CTRL_FAULT_RETRY_MS (500U)
-
 /** @brief 用户确认 A 端与 ref 并联，共用电压下限，单位 V。 */
 #define POWER_CTRL_A_REF_MIN_V (15.0f)
 /** @brief A/ref 共用电压上限，单位 V，引用用户确认的 29 V 基准。 */

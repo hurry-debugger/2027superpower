@@ -35,7 +35,7 @@ static void PowerCtrl_RecordHrtimFault(void);
 void PowerCtrl_Init(void)
 {
     g_power_ctrl.state = PROTECT_MODE;
-
+    g_power_ctrl.fault_retry_interval_ms = 250U;
     /* 三个位置式外环首版均使用零增益。离散系数按 Master 每 16 us 调用定义。 */
     PID_Init(&g_power_ctrl.energy_pid, 20, 
                 0.0f, 0.0f,
@@ -64,6 +64,7 @@ void PowerCtrl_Task(void)
             {
                 BspHrtim_ModeStateMachine();
                 BspAnalog_UpdateDacTarget(0.0f);
+                LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
                 g_power_ctrl.state = CTRL_MODE;
             }
         }    break;
@@ -90,26 +91,43 @@ void PowerCtrl_Task(void)
     // clang-format on
 }
 
+
 void PowerCtrl_ServiceFault(void)
 {
-    s_error.faults.all |= LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
+    //不设置ICR清除ISR,ISR就是长期状态，哪怕只发生一次
+    s_error.faults.all = LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
+
+    if(adc_fdb.A.V > BSP_ADC_AWD_V_A_HIGH_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE;
+    else if(adc_fdb.A.V < BSP_ADC_AWD_V_A_LOW_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_UNDERVOLTAGE;
+    if(adc_fdb.B.V > BSP_ADC_AWD_V_B_HIGH_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CAP_OVERVOLTAGE;
+    else if(adc_fdb.B.V < BSP_ADC_AWD_V_B_LOW_V)
+        s_error.faults.all |= POWER_CTRL_FAULT_CAP_UNDERVOLTAGE;
+
+    //多等待1ms判断是否可以恢复，避免四次均值后的引起捕捉不到某次高峰
+    if((s_error.fault_retry_start_ms == g_power_ctrl.fault_retry_interval_ms + 1) && !s_error.faults.all)
+    {
+        s_error.faults.all = 0U;
+        s_error.fault_retry_start_ms = 0U;
+        //指数上升到一定数值就相当于锁存
+        g_power_ctrl.fault_retry_interval_ms *= 2;
+    }
+//                                  初次恢复正常的时候开始计算时间
+    if(s_error.faults.all == 0U || !PowerCtrl_FeedbackInSafeWindow())
+        s_error.fault_retry_start_ms = 0;
 
     if(s_error.faults.all != 0U)
     {
-        LL_HRTIM_DisableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
-        PowerCtrl_RecordHrtimFault();
-    }
-//  尝试恢复
-    if(s_error.faults.all != 0U && !PowerCtrl_FeedbackInSafeWindow())
-    {
-        s_error.fault_retry_start_ms = HAL_GetTick();
-    }
-
-    if(PowerCtrl_FeedbackInSafeWindow() && (HAL_GetTick() - s_error.fault_retry_start_ms >= POWER_CTRL_FAULT_RETRY_MS))
-    {
-        s_error.faults.all = 0U;
-        LL_HRTIM_WriteReg(HRTIM1, sCommonRegs.ICR, POWER_CTRL_HRTIM_FAULT_MASK);
-        LL_HRTIM_EnableOutput(HRTIM1, BSP_HRTIM_POWER_OUTPUT_MASK);
+        if(PowerCtrl_FeedbackInSafeWindow())
+        {
+        //  尝试恢复 后++
+            if(s_error.fault_retry_start_ms++ == g_power_ctrl.fault_retry_interval_ms)
+            {
+                LL_HRTIM_WriteReg(HRTIM1, sCommonRegs.ICR, POWER_CTRL_HRTIM_FAULT_MASK);
+            }
+        }
     }
 }
 

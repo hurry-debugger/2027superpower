@@ -79,6 +79,7 @@ typedef struct
     PID_TypeDef power_pid; /**< 输入功率误差，单位 W；输出有符号电感电流候选，单位 A。 */
     PID_TypeDef voltage_pid; /**< 电压环限充候选，范围 0～15 A，不产生放电请求。 */
     uint8_t voltage_compete_enabled; /**< 电压资格历史，0 禁止、1 允许，预备输出时清零。 */
+    uint32_t fault_retry_interval_ms; /**< 软件 Fault 恢复尝试间隔，单位 ms，初始值为250，每发生一次fault恢复后翻倍。 */
 } PowerCtrl_t;
 
 extern PowerCtrl_t g_power_ctrl;
