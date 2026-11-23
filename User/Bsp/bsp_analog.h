@@ -63,8 +63,8 @@
  */
 #define BSP_ADC_AWD_I_A_LOW_A (-20.0f)
 #define BSP_ADC_AWD_I_A_HIGH_A (20.0f)
-#define BSP_ADC_AWD_I_BAT_LOW_A (-6.5f)
-#define BSP_ADC_AWD_I_BAT_HIGH_A (6.5f)
+#define BSP_ADC_AWD_I_BAT_LOW_A (-16.5f)
+#define BSP_ADC_AWD_I_BAT_HIGH_A (16.5f)
 #define BSP_ADC_AWD_V_A_HIGH_V (29.0f)
 #define BSP_ADC_AWD_I_B_LOW_A (-25.5f)
 #define BSP_ADC_AWD_I_B_HIGH_A (25.5f)

@@ -15,10 +15,8 @@
 
 #include <stdbool.h>
 
-/** @brief Timer A 写入故障字和重试时间，Master 与状态上报只读故障字。 */
-static error_t s_error;
-/** @brief Timer A 本次轮询的原始 FLT 位，故障锁存和清标志共用。 */
-static uint32_t s_hrtim_fault_mask;
+/** @brief Timer A 写入故障字和重试时间 */
+error_t s_error;
 
 PowerCtrl_t g_power_ctrl;
 
@@ -28,14 +26,14 @@ static void PowerCtrl_CalculateCurrentTarget(void);
 static void PowerCtrl_CurrentTargetLimit(void);
 static void PowerCtrl_ResetLoops(void);
 static bool PowerCtrl_FeedbackInSafeWindow(void);
-static void PowerCtrl_RecordHrtimFault(void);
 
 /* ==================== 公共入口 ==================== */
 
 void PowerCtrl_Init(void)
 {
     g_power_ctrl.state = PROTECT_MODE;
-    g_power_ctrl.fault_retry_interval_ms = 250U;
+    //初次恢复正常的时候开始计算时间
+    g_power_ctrl.fault_retry_interval_ms = 100U;
     /* 三个位置式外环首版均使用零增益。离散系数按 Master 每 16 us 调用定义。 */
     PID_Init(&g_power_ctrl.energy_pid, 20, 
                 0.0f, 0.0f,
@@ -169,24 +167,6 @@ static bool PowerCtrl_FeedbackInSafeWindow(void)
         && adc_fdb.ref.I <= BSP_ADC_AWD_I_BAT_HIGH_A
         && adc_fdb.B.I >= BSP_ADC_AWD_I_B_LOW_A
         && adc_fdb.B.I <= BSP_ADC_AWD_I_B_HIGH_A;
-}
-
-/**
- * @brief 合并原始 Fault 及对应电压的越界明细，发布完整故障字。
- * @pre 仅由 Timer A 在关闭四路输出、屏蔽 Master 抢占并读出本次原始标志后调用。
- * @note 反馈可能晚于触发时刻，方向不明时继续保留原始 FLT3/5。
- */
-static void PowerCtrl_RecordHrtimFault(void)
-{
-    if(adc_fdb.A.V > BSP_ADC_AWD_V_A_HIGH_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE;
-    else if(adc_fdb.A.V < BSP_ADC_AWD_V_A_LOW_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_UNDERVOLTAGE;
-
-    if(adc_fdb.B.V > BSP_ADC_AWD_V_B_HIGH_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CAP_OVERVOLTAGE;
-    else if(adc_fdb.B.V < BSP_ADC_AWD_V_B_LOW_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CAP_UNDERVOLTAGE;
 }
 
 /** @brief 丢弃故障前的三环历史及限幅记录。 */
