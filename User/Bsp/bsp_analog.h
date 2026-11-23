@@ -168,7 +168,7 @@
  * @brief DAC 锯齿步进码，取自《斜坡补偿参数计算》截图选点，12.4 定点为 14.375 计数/步。
  * @note 本板斜坡补偿效果待上板验证。
  */
-#define BSP_ANALOG_DAC_STEP_CODE (230U)
+#define BSP_ANALOG_DAC_STEP_CODE (180U)
 /** @brief 电感半纹波偏置，单位 A；首版沿用港科 RM2025 上场版的 1.25 A，待本板实测。 */
 #define BSP_ANALOG_DAC_HALF_RIPPLE_A (1.25f)
 

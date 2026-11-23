@@ -96,12 +96,12 @@ void BspAdcFeedback_Process(void)
 void BspAnalog_UpdateDacTarget(float inductor_target_a)
 {
     (void)HAL_DACEx_SawtoothWaveGenerate(
-        &hdac1, DAC_CHANNEL_2, DAC_SAWTOOTH_POLARITY_INCREMENT,
+        &hdac1, DAC_CHANNEL_2, DAC_SAWTOOTH_POLARITY_DECREMENT,
         BspAnalog_CurrentToDacCode(inductor_target_a + BSP_ANALOG_DAC_HALF_RIPPLE_A,
                                    ADC_I_BAT_ZERO_V),
         BSP_ANALOG_DAC_STEP_CODE);
     (void)HAL_DACEx_SawtoothWaveGenerate(
-        &hdac1, DAC_CHANNEL_1, DAC_SAWTOOTH_POLARITY_DECREMENT,
+        &hdac1, DAC_CHANNEL_1, DAC_SAWTOOTH_POLARITY_INCREMENT,
         BspAnalog_CurrentToDacCode(inductor_target_a - BSP_ANALOG_DAC_HALF_RIPPLE_A,
                                    BSP_ADC_I_B_ZERO_V),
         BSP_ANALOG_DAC_STEP_CODE);

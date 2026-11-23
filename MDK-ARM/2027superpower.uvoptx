@@ -190,6 +190,11 @@
           <WinNumber>1</WinNumber>
           <ItemText>g_dwt_us</ItemText>
         </Ww>
+        <Ww>
+          <count>7</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>s_hrtim_state</ItemText>
+        </Ww>
       </WatchWindow1>
       <Tracepoint>
         <THDelay>0</THDelay>
