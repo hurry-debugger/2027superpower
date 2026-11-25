@@ -118,7 +118,7 @@
      && ((high_raw_count) >= ((counts_per_code) - 1U)) \
      && ((high_raw_count) <= ADC_FULL_SCALE_COUNT) \
      && (BSP_ADC_AWD_LOWER_CODE((low_raw_count), (counts_per_code)) \
-         <= BSP_ADC_AWD_UPPER_CODE((high_raw_count), (counts_per_code))))
+         <= BSaP_ADC_AWD_UPPER_CODE((high_raw_count), (counts_per_code))))
 
 /** @brief 理论原码，A 侧和电池电流取 U6 零点，B 侧电流取 U7 零点。 */
 #define BSP_ADC_AWD_I_A_LOW_RAW_COUNT \
@@ -168,9 +168,9 @@
  * @brief DAC 锯齿步进码，取自《斜坡补偿参数计算》截图选点，12.4 定点为 14.375 计数/步。
  * @note 本板斜坡补偿效果待上板验证。
  */
-#define BSP_ANALOG_DAC_STEP_CODE (180U)
+#define BSP_ANALOG_DAC_STEP_CODE (360U)
 /** @brief 电感半纹波偏置，单位 A；首版沿用港科 RM2025 上场版的 1.25 A，待本板实测。 */
-#define BSP_ANALOG_DAC_HALF_RIPPLE_A (1.25f)
+#define BSP_ANALOG_DAC_HALF_RIPPLE_A (1.85f)
 
 /* ==================== 旧五路兼容参数 ==================== */
 

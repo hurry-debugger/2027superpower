@@ -83,6 +83,7 @@ typedef struct
 } PowerCtrl_t;
 
 extern PowerCtrl_t g_power_ctrl;
+extern error_t s_error;
 
 /**
  * @brief 进入 PROTECT 并初始化能量、功率和电压三环。

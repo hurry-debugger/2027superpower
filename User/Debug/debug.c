@@ -28,6 +28,14 @@ void DataWavePkg(void)
             DataScope_Get_Channel_Data(adc_fdb.ref.V);
             DataScope_Get_Channel_Data(adc_fdb.A.V);
             DataScope_Get_Channel_Data(adc_fdb.B.V);
+			
+            DataScope_Get_Channel_Data(g_power_ctrl.ref_power_fdb_w);
+            DataScope_Get_Channel_Data(g_power_ctrl.ref_power_target_w);
+			
+			DataScope_Get_Channel_Data(s_error.faults.all);
+			DataScope_Get_Channel_Data(s_error.fault_retry_start_ms);
+            DataScope_Get_Channel_Data(g_power_ctrl.fault_retry_interval_ms);
+
         }    break;
 
         case DEBUG_WAVE_CURRENT_VOLTAGE:

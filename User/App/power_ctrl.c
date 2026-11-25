@@ -37,11 +37,11 @@ void PowerCtrl_Init(void)
     /* 三个位置式外环首版均使用零增益。离散系数按 Master 每 16 us 调用定义。 */
     PID_Init(&g_power_ctrl.energy_pid, 20, 
                 0.0f, 0.0f,
-                0.0f, 0.0f, 0.0f,
+                1.5f, 0.0f, 0.0f,
                 0.0f, 0.0f, 0.0f, 0.0f, NONE);
     PID_Init(&g_power_ctrl.power_pid, POWER_CTRL_CAP_CURRENT_MAX_A,
                 POWER_CTRL_CAP_CURRENT_MAX_A, 0.0f,
-                0.0f, 0.0f, 0.0f, 0.0f, 
+                0.0f, 0.0001f, 0.0f, 0.0f, 
                 0.0f, 0.0f, 0.0f, NONE);
     PID_Init(&g_power_ctrl.voltage_pid, POWER_CTRL_CAP_CURRENT_MAX_A,
                 POWER_CTRL_CAP_CURRENT_MAX_A, 0.0f,
@@ -73,7 +73,7 @@ void PowerCtrl_Task(void)
                 g_power_ctrl.state = PROTECT_MODE;
             else
             {
-//                PowerCtrl_CalculateCurrentTarget();
+                PowerCtrl_CalculateCurrentTarget();
                 PowerCtrl_CurrentTargetLimit();
 
                 BspHrtim_ModeStateMachine();
@@ -113,7 +113,7 @@ void PowerCtrl_ServiceFault(void)
         g_power_ctrl.fault_retry_interval_ms *= 2;
     }
 //                                  初次恢复正常的时候开始计算时间
-    if(s_error.faults.all == 0U || !PowerCtrl_FeedbackInSafeWindow())
+    if(s_error.faults.all == 0U || !PowerCtrl_FeedbackInSafeWindow() || s_error.fault_retry_start_ms > g_power_ctrl.fault_retry_interval_ms)
         s_error.fault_retry_start_ms = 0;
 
     if(s_error.faults.all != 0U)
@@ -137,7 +137,7 @@ void TimerA_1ms_buffer_loop_calculate(void)
         g_power_ctrl.energy_pid.Output = 0.0f;
     }else
     {
-        g_power_ctrl.energy_pid.Output = g_power_ctrl.energy_pid.Kp * (POWER_CTRL_ENERGY_TARGET_J - g_power_ctrl.energy_pid.Measure);
+        g_power_ctrl.energy_pid.Output = g_power_ctrl.energy_pid.Kp * (POWER_CTRL_ENERGY_TARGET_J - power_heat_data.buffer_energy);
     }
 }
 
@@ -189,10 +189,13 @@ static void PowerCtrl_ResetLoops(void)
 static void PowerCtrl_CalculateCurrentTarget(void)
 {
     g_power_ctrl.ref_power_fdb_w = adc_fdb.ref.V * adc_fdb.ref.I;
-
+	
+	g_power_ctrl.ref_power_target_w = robot_status.chassis_power_limit - g_power_ctrl.energy_pid.Output;
+	
     PID_Calculate_Increase(&g_power_ctrl.power_pid, g_power_ctrl.ref_power_fdb_w, g_power_ctrl.ref_power_target_w);
 
     PID_Calculate_Increase(&g_power_ctrl.voltage_pid, adc_fdb.B.V, POWER_CTRL_CAP_TARGET_V);
+	
     if(g_power_ctrl.voltage_pid.Output < 0.0f)
     {
         g_power_ctrl.voltage_pid.Output = 0.0f;
@@ -247,5 +250,9 @@ static void PowerCtrl_CurrentTargetLimit(void)
     OUTPUT_LIMIT(g_power_ctrl.inducotor_current_target_a,
                  g_power_ctrl.inductor_current_upper_limit_a,
                  g_power_ctrl.inductor_current_lower_limit_a);
+	//刷新一下增量式的output不然容易超调
+	g_power_ctrl.voltage_pid.Output = g_power_ctrl.inducotor_current_target_a;
+	g_power_ctrl.power_pid.Output = g_power_ctrl.inducotor_current_target_a;
+	
 }
 
