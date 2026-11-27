@@ -1,6 +1,6 @@
 /**
  * @file prot_supercap.c
- * @brief 超电遥测的经典 CAN 打包与解包。
+ * @brief 超电遥测（单帧 0x100）的经典 CAN 打包与解包。
  */
 #include "prot_supercap.h"
 
@@ -21,28 +21,38 @@ static float SupercapCan_UintToFloat(uint16_t raw, float min_val, float max_val,
 
 void SupercapCan_Send1ms(void)
 {
-    uint8_t tx_data[8];
-    uint16_t raw;
+    uint8_t tx_data[SUPERCAP_CAN_FRAME_LEN];
+    uint32_t raw;
 
-    tx_data[0] = (uint8_t)s_error.faults.all;
+    /* Byte 0～1：低 12 位为故障字，高 4 位为芯片温度档位（×10 °C）。 */
+    raw = (s_error.faults.all & SUPERCAP_CAN_FAULT_MASK)
+        | ((uint32_t)(BspAnalog_GetMcuTempLevel() & SUPERCAP_CAN_TEMP_MASK)
+           << SUPERCAP_CAN_TEMP_SHIFT);
+    tx_data[0] = (uint8_t)raw;
+    tx_data[1] = (uint8_t)(raw >> 8U);
 
-    raw = SupercapCan_FloatToUint(adc_fdb.ref.V, SUPERCAP_CAN_VOLTAGE_MIN_V,
-                                 SUPERCAP_CAN_VOLTAGE_MAX_V, SUPERCAP_CAN_DATA_BITS);
-    tx_data[1] = (uint8_t)raw;
-    tx_data[2] = (uint8_t)(raw >> 8U);
+    /* Byte 2：累计重启次数前移至电流之前。 */
+    tx_data[2] = PowerCtrl_GetRestartCount();
 
+    /* Byte 3～4：16 位裁判端电流。 */
     raw = SupercapCan_FloatToUint(adc_fdb.ref.I, SUPERCAP_CAN_CURRENT_MIN_A,
-                                 SUPERCAP_CAN_CURRENT_MAX_A, SUPERCAP_CAN_DATA_BITS);
+                                  SUPERCAP_CAN_CURRENT_MAX_A, SUPERCAP_CAN_CURRENT_BITS);
     tx_data[3] = (uint8_t)raw;
     tx_data[4] = (uint8_t)(raw >> 8U);
 
-    raw = SupercapCan_FloatToUint(adc_fdb.B.V * (-g_power_ctrl.inductor_current_lower_limit_a),
-                                 SUPERCAP_CAN_POWER_MIN_W, SUPERCAP_CAN_POWER_MAX_W,
-                                 SUPERCAP_CAN_DATA_BITS);
+    /* Byte 5～7：24 位紧凑打包 14 位电压（低 14 位）与 10 位可放电功率（高 10 位）。
+     * 可放电功率 = 电容电压 × 当前放电电流下限幅值。 */
+    raw = (uint32_t)SupercapCan_FloatToUint(adc_fdb.ref.V, SUPERCAP_CAN_VOLTAGE_MIN_V,
+                                            SUPERCAP_CAN_VOLTAGE_MAX_V, SUPERCAP_CAN_VOLTAGE_BITS)
+        | ((uint32_t)SupercapCan_FloatToUint(
+               adc_fdb.B.V * (-g_power_ctrl.inductor_current_lower_limit_a),
+               SUPERCAP_CAN_POWER_MIN_W, SUPERCAP_CAN_POWER_MAX_W, SUPERCAP_CAN_POWER_BITS)
+           << SUPERCAP_CAN_POWER_SHIFT);
     tx_data[5] = (uint8_t)raw;
     tx_data[6] = (uint8_t)(raw >> 8U);
-    tx_data[7] = 0U;
+    tx_data[7] = (uint8_t)(raw >> 16U);
 
+    /* 未入队时舍弃本帧，不重试，避免阻塞 1 ms 任务。 */
     (void)Fdcanx_Transmit(&hfdcan2, SUPERCAP_CAN_TX_ID, tx_data);
 }
 
@@ -50,16 +60,24 @@ void SupercapCan_RxCallback(uint32_t rx_id, const uint8_t *data)
 {
     if(rx_id == SUPERCAP_CAN_TX_ID && data != NULL)
     {
-        g_supercap_can_rx.error_flags.all = data[0];
-        g_supercap_can_rx.ref_voltage_v = SupercapCan_UintToFloat(
-            (uint16_t)((uint16_t)data[1] | ((uint16_t)data[2] << 8U)), SUPERCAP_CAN_VOLTAGE_MIN_V,
-            SUPERCAP_CAN_VOLTAGE_MAX_V, SUPERCAP_CAN_DATA_BITS);
+        uint16_t head_word = (uint16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8U));
+        uint32_t vp_word = (uint32_t)data[5] | ((uint32_t)data[6] << 8U)
+            | ((uint32_t)data[7] << 16U);
+
+        g_supercap_can_rx.error_flags.all = (uint16_t)(head_word & SUPERCAP_CAN_FAULT_MASK);
+        g_supercap_can_rx.mcu_temp_c = (uint8_t)(((head_word >> SUPERCAP_CAN_TEMP_SHIFT)
+                                                  & SUPERCAP_CAN_TEMP_MASK)
+                                                 * SUPERCAP_CAN_TEMP_SCALE_C);
+        g_supercap_can_rx.restart_count = data[2];
         g_supercap_can_rx.ref_current_a = SupercapCan_UintToFloat(
             (uint16_t)((uint16_t)data[3] | ((uint16_t)data[4] << 8U)), SUPERCAP_CAN_CURRENT_MIN_A,
-            SUPERCAP_CAN_CURRENT_MAX_A, SUPERCAP_CAN_DATA_BITS);
+            SUPERCAP_CAN_CURRENT_MAX_A, SUPERCAP_CAN_CURRENT_BITS);
+        g_supercap_can_rx.ref_voltage_v = SupercapCan_UintToFloat(
+            (uint16_t)(vp_word & SUPERCAP_CAN_VOLTAGE_MASK), SUPERCAP_CAN_VOLTAGE_MIN_V,
+            SUPERCAP_CAN_VOLTAGE_MAX_V, SUPERCAP_CAN_VOLTAGE_BITS);
         g_supercap_can_rx.discharge_power_max_w = SupercapCan_UintToFloat(
-            (uint16_t)((uint16_t)data[5] | ((uint16_t)data[6] << 8U)), SUPERCAP_CAN_POWER_MIN_W,
-            SUPERCAP_CAN_POWER_MAX_W, SUPERCAP_CAN_DATA_BITS);
+            (uint16_t)((vp_word >> SUPERCAP_CAN_POWER_SHIFT) & SUPERCAP_CAN_POWER_MASK),
+            SUPERCAP_CAN_POWER_MIN_W, SUPERCAP_CAN_POWER_MAX_W, SUPERCAP_CAN_POWER_BITS);
     }
 }
 

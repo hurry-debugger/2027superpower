@@ -103,7 +103,6 @@ uint8_t judge_get_data(uint8_t *data, uint16_t data_len)
         }
 
         result = 0U;
-        // clang-format off
         switch(cmd_id)
         {
             case ID_game_status:                  judge_copy_if_length(&game_status, &data[index + 7U], frame_header.data_length, LEN_game_status); break;

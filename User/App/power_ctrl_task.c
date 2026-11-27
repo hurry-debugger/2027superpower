@@ -6,6 +6,7 @@
 
 #include "boardinfo.h"
 #include "bsp_analog.h"
+#include "bsp_can.h"
 #include "bsp_dwt.h"
 #include "bsp_hrtim.h"
 #include "bsp_usart.h"
@@ -76,6 +77,7 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
             Bsp_DWT_Start(2);
             Bsp_DWT_Start(3);
 
+            BspAnalog_UpdateMcuTemp();
             PowerCtrl_ServiceFault();
             TimerA_1ms_buffer_loop_calculate();
             SupercapCan_Send1ms();

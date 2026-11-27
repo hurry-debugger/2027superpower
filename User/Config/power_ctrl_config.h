@@ -78,4 +78,11 @@
 /** @brief 用户确认的缓冲能量目标 J；目标减反馈产生功率修正 u_E，随后从功率目标扣除。 */
 #define POWER_CTRL_ENERGY_TARGET_J (45.0f)
 
+/* ==================== 芯片过温保护 ==================== */
+
+/** @brief 芯片过温保护触发阈值，单位 °C；Timer A 中严格超过时置位过温标志。 */
+#define POWER_CTRL_MCU_OVERTEMP_C (95.0f)
+/** @brief 芯片过温保护恢复阈值（迟滞），单位 °C；回落至不高于此值时解除过温标志。 */
+#define POWER_CTRL_MCU_OVERTEMP_RECOVER_C (80.0f)
+
 #endif /* SUPERPOWER_POWER_CTRL_CONFIG_H */

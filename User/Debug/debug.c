@@ -13,7 +13,6 @@ volatile DebugWave_e g_debug_wave = DEBUG_WAVE_CURRENT;
 
 void DataWavePkg(void)
 {
-    // clang-format off
     switch(g_debug_wave)
     {
         case DEBUG_WAVE_CURRENT:
@@ -68,5 +67,4 @@ void DataWavePkg(void)
             /* 无通道时不启动发送，已经进行的 DMA 不受影响。 */
         }    break;
     }
-    // clang-format on
 }

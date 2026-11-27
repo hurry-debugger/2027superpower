@@ -1,6 +1,6 @@
 /**
  * @file bsp_analog.c
- * @brief 模拟外设启动、ADC 看门狗设置、双 ADC 采样和 DAC 锯齿复位码更新。
+ * @brief 模拟外设启动、ADC5 芯片温度采样、ADC 看门狗设置、双 ADC 采样和 DAC 锯齿复位码更新。
  */
 #include "bsp_analog.h"
 
@@ -15,6 +15,12 @@
 
 /** @brief 循环 DMA 一次填充四轮扫描，每字低半字为 ADC1，高半字为 ADC2。 */
 static volatile uint32_t s_adc12_dma[BSP_ADC_SCAN_COUNT][BSP_ADC_RANK_COUNT];
+
+/** @brief ADC5 循环 DMA 缓冲：[0] 为 VREFINT，[1] 为片内温度传感器（256× 过采样右移 8 位）。 */
+static volatile uint16_t s_adc5_dma[BSP_ADC5_CHANNEL_COUNT];
+
+/** @brief MCU 芯片结温，单位 °C，由初始化及 1 ms Timer A 刷新。 */
+static float s_mcu_temp_c = 25.0f;
 
 BspAdcFeedback_t adc_fdb;
 
@@ -46,6 +52,16 @@ void BspAnalog_Init(void)
     }
     HAL_Delay(BSP_ADC_OPAMP_SETTLE_MS);
 
+    /* 校准并启动 ADC5 循环 DMA，等待首轮 256× 过采样完成以获取初始芯片温度。 */
+    if(HAL_ADCEx_Calibration_Start(&hadc5, ADC_SINGLE_ENDED) != HAL_OK
+       || HAL_ADC_Start_DMA(&hadc5, (uint32_t *)s_adc5_dma, BSP_ADC5_CHANNEL_COUNT) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    __HAL_DMA_DISABLE_IT(hadc5.DMA_Handle, DMA_IT_HT | DMA_IT_TC);
+    HAL_Delay(BSP_ADC5_STARTUP_SETTLE_MS);
+    BspAnalog_UpdateMcuTemp();
+
     BspAnalog_UpdateDacTarget(0.0f);
     if(HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK
        || HAL_DAC_Start(&hdac1, DAC_CHANNEL_1) != HAL_OK
@@ -72,6 +88,41 @@ void BspAnalog_Init(void)
 
     /* 采样由 Master 调度，DMA IRQ 继续处理传输错误。 */
     __HAL_DMA_DISABLE_IT(hadc1.DMA_Handle, DMA_IT_HT | DMA_IT_TC);
+}
+
+void BspAnalog_UpdateMcuTemp(void)
+{
+    /* DMA 持续异步改写缓冲，先取一次快照，保证有效性判断与换算使用同一原码。 */
+    uint16_t temp_raw = s_adc5_dma[1U];
+
+    /* 按标称 VREF+ 与 ST 官方 TS_CAL1(30°C) / TS_CAL2(130°C) 两点线性插值计算芯片结温。 */
+    if(temp_raw > 0U && temp_raw < ADC_FULL_SCALE_COUNT
+       && (int32_t)(*TEMPSENSOR_CAL2_ADDR) != (int32_t)(*TEMPSENSOR_CAL1_ADDR))
+    {
+        s_mcu_temp_c = ((float)temp_raw * (ADC_REFERENCE_V * 1000.0f)
+                        / (float)TEMPSENSOR_CAL_VREFANALOG
+                        - (float)(*TEMPSENSOR_CAL1_ADDR))
+                * (float)(TEMPSENSOR_CAL2_TEMP - TEMPSENSOR_CAL1_TEMP)
+                / (float)((int32_t)(*TEMPSENSOR_CAL2_ADDR) - (int32_t)(*TEMPSENSOR_CAL1_ADDR))
+            + (float)TEMPSENSOR_CAL1_TEMP;
+    }
+}
+
+float BspAnalog_GetMcuTemp(void)
+{
+    return s_mcu_temp_c;
+}
+
+uint8_t BspAnalog_GetMcuTempLevel(void)
+{
+    uint8_t level = 0U;
+
+    if(s_mcu_temp_c >= (float)BSP_ADC_MCU_TEMP_MAX_LEVEL * BSP_ADC_MCU_TEMP_STEP_C)
+        level = BSP_ADC_MCU_TEMP_MAX_LEVEL;
+    else if(s_mcu_temp_c >= 0.0f)
+        level = (uint8_t)(s_mcu_temp_c / BSP_ADC_MCU_TEMP_STEP_C);
+
+    return level;
 }
 
 void BspAdcFeedback_Process(void)

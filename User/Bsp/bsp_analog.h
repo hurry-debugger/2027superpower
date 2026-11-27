@@ -1,11 +1,13 @@
 /**
  * @file bsp_analog.h
- * @brief 模拟外设启动、双 ADC 反馈及双路 DAC 更新接口。
+ * @brief 模拟外设启动、ADC5 芯片温度采样、双 ADC 反馈及双路 DAC 更新接口。
  */
 #ifndef SUPERPOWER_BSP_ANALOG_H
 #define SUPERPOWER_BSP_ANALOG_H
 
-/* ==================== OPAMP 与双 ADC 采样 ==================== */
+#include <stdint.h>
+
+/* ==================== OPAMP 与双 ADC / ADC5 采样 ==================== */
 
 /** @brief OPAMP 启动等待时间，单位 ms，覆盖 LL_OPAMP_DELAY_STARTUP_US 的 6 us。 */
 #define BSP_ADC_OPAMP_SETTLE_MS (1U)
@@ -15,12 +17,20 @@
 #define BSP_ADC_SCAN_COUNT (4U)
 /** @brief 循环 DMA 长度，单位为 32 位打包字。 */
 #define BSP_ADC_DMA_WORD_COUNT (BSP_ADC_SCAN_COUNT * BSP_ADC_RANK_COUNT)
+/** @brief ADC5 循环 DMA 通道数，Rank 1 为 VREFINT，Rank 2 为片内温度传感器。 */
+#define BSP_ADC5_CHANNEL_COUNT (2U)
+/** @brief ADC5 启动后等待首轮 256× 过采样完成的时长，单位 ms（两通道一轮约 7.87 ms）。 */
+#define BSP_ADC5_STARTUP_SETTLE_MS (15U)
 
 /* ==================== 模拟前端参数与反馈换算 ==================== */
 
 /** @brief ADC 的 VREF+ 标称电压，单位 V；原理图 V1.3 U4 REF3033，实测值待标定。 */
 #define ADC_REFERENCE_V (3.3f)
-/** @brief 12 位右对齐 ADC 的满量程计数，不启用硬件过采样。 */
+/** @brief 芯片温度 4 bit 档位步长，单位 °C/档（底盘读取后乘 10 得温度）。 */
+#define BSP_ADC_MCU_TEMP_STEP_C (10.0f)
+/** @brief 芯片温度 4 bit 档位最大值，对应 150 °C。 */
+#define BSP_ADC_MCU_TEMP_MAX_LEVEL (15U)
+/** @brief 12 位右对齐 ADC 的满量程计数，ADC1/2 不启用硬件过采样，ADC5 右移后同为 12 位。 */
 #define ADC_FULL_SCALE_COUNT (4095U)
 /** @brief V1.3 U5/U8/U9 INA240A1 的标称增益，单位 V/V；TI 手册为 20。 */
 #define ADC_CURRENT_SENSE_GAIN (20.0f)
@@ -95,11 +105,30 @@ typedef struct
 extern BspAdcFeedback_t adc_fdb;
 
 /**
- * @brief 自校准并启动 OPAMP，准备并启动 DAC 和 COMP，再校准 ADC1/2、设置看门狗并启动双 ADC DMA。
+ * @brief 自校准并启动 OPAMP、ADC5 DMA（芯片温度）、DAC 与 COMP，再校准 ADC1/2、设置看门狗并启动双 ADC DMA。
  * @pre CubeMX 外设初始化完成，SysTick 正常运行，HRTIM Master/A/B 尚未启动，功率输出关闭。
  * @note 仅启动阶段调用一次。HAL 调用失败进入 Error_Handler()。
  */
 void BspAnalog_Init(void);
+
+/**
+ * @brief 从 ADC5 循环 DMA 缓冲实时刷新 MCU 芯片结温。
+ * @pre ADC5 循环 DMA 已启动；由初始化或 1 kHz Timer A 回调调用。
+ * @note 采用标称 VREF+ 与 ST 官方 TS_CAL1/TS_CAL2 出厂标定值计算。
+ */
+void BspAnalog_UpdateMcuTemp(void);
+
+/**
+ * @brief 获取当前 MCU 芯片结温，单位 °C。
+ * @return ADC5 内部温度传感器经出厂两点校准后的温度值。
+ */
+float BspAnalog_GetMcuTemp(void);
+
+/**
+ * @brief 获取 4 bit 量化后的芯片温度档位（0～15，底盘读取后乘 10 得当前温度 °C）。
+ * @return 范围 0～15，低于 0 °C 钳位为 0，不低于 150 °C 钳位为 15。
+ */
+uint8_t BspAnalog_GetMcuTempLevel(void);
 
 /**
  * @brief 对四轮同步扫描按 Rank 累加并换算，发布六路标称电压及电流。

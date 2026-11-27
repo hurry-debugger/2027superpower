@@ -33,7 +33,7 @@ void PowerCtrl_Init(void)
 {
     g_power_ctrl.state = PROTECT_MODE;
     //初次恢复正常的时候开始计算时间
-    g_power_ctrl.fault_retry_interval_ms = 100U;
+    g_power_ctrl.fault_retry_interval_ms = POWER_CTRL_FAULT_RETRY_INIT_MS;
     /* 三个位置式外环首版均使用零增益。离散系数按 Master 每 16 us 调用定义。 */
     PID_Init(&g_power_ctrl.energy_pid, 20, 
                 0.0f, 0.0f,
@@ -87,59 +87,53 @@ void PowerCtrl_Task(void)
     }
 }
 
-
 void PowerCtrl_ServiceFault(void)
 {
-    /* 保留本次轮询的硬件锁存快照，未上报的 FLT3/FLT5 仍参与恢复判定。 */
-    uint32_t hrtim_isr = LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
+    /* 保留过温迟滞位（bit 10），其余位本周期重新同步。 */
+    s_error.faults.all &= POWER_CTRL_OVERTEMP_FAULT_MASK;
 
-    s_error.faults.all = 0U;
-    if((hrtim_isr & HRTIM_FLAG_FLT1) != 0U)
-        s_error.faults.bits.chassis_overcurrent = 1U;
-    if((hrtim_isr & HRTIM_FLAG_FLT2) != 0U)
-        s_error.faults.bits.battery_overcurrent = 1U;
-    if((hrtim_isr & HRTIM_FLAG_FLT4) != 0U)
-        s_error.faults.bits.cap_overcurrent = 1U;
+    /* 直接将硬件锁存的 FLT1～FLT5 或入低 5 位，省去局部快照并防止瞬态保护被四次均值漏记。 */
+    s_error.faults.all |= LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
+
+    /* 芯片过温保护：超过 95 °C 置位，回落至不高于 80 °C 才解除，防止在阈值附近频繁启停。 */
+    if(BspAnalog_GetMcuTemp() > POWER_CTRL_MCU_OVERTEMP_C)
+        s_error.faults.bits.mcu_overtemp = 1U;
+    else if(BspAnalog_GetMcuTemp() <= POWER_CTRL_MCU_OVERTEMP_RECOVER_C)
+        s_error.faults.bits.mcu_overtemp = 0U;
 
     if(adc_fdb.A.V > BSP_ADC_AWD_V_A_HIGH_V)
-        s_error.faults.bits.chassis_overvoltage = 1;
+        s_error.faults.bits.chassis_overvoltage = 1U;
     else if(adc_fdb.A.V < BSP_ADC_AWD_V_A_LOW_V)
-        s_error.faults.bits.chassis_undervoltage = 1;
+        s_error.faults.bits.chassis_undervoltage = 1U;
     if(adc_fdb.B.V > BSP_ADC_AWD_V_B_HIGH_V)
-        s_error.faults.bits.cap_overvoltage = 1;
+        s_error.faults.bits.cap_overvoltage = 1U;
     else if(adc_fdb.B.V < BSP_ADC_AWD_V_B_LOW_V)
-        s_error.faults.bits.cap_undervoltage = 1;
+        s_error.faults.bits.cap_undervoltage = 1U;
 
-    //多等待1ms判断是否可以恢复，避免四次均值后的引起捕捉不到某次高峰
-    if((s_error.fault_retry_start_ms >= g_power_ctrl.fault_retry_interval_ms + 1)
-       && s_error.faults.all == 0U && hrtim_isr == 0U)
+    /* 多等待 1 ms 确认硬件和软件故障均未复发，再确认本次恢复并翻倍退避间隔。 */
+    if((s_error.fault_retry_start_ms >= g_power_ctrl.fault_retry_interval_ms + 1U)
+       && s_error.faults.all == 0U)
     {
-        s_error.faults.all = 0U;
         s_error.fault_retry_start_ms = 0U;
-        //指数上升到一定数值就相当于锁存
-        g_power_ctrl.fault_retry_interval_ms *= 2;
+        if(g_power_ctrl.fault_retry_interval_ms <= (UINT32_MAX / 2U))
+            g_power_ctrl.fault_retry_interval_ms *= 2U;
     }
-//                                  初次恢复正常的时候开始计算时间
-    if((s_error.faults.all == 0U && hrtim_isr == 0U) || !PowerCtrl_FeedbackInSafeWindow()
-       || s_error.fault_retry_start_ms > g_power_ctrl.fault_retry_interval_ms)
-        s_error.fault_retry_start_ms = 0;
 
-    if(s_error.faults.all != 0U || hrtim_isr != 0U)
+    if(s_error.faults.all == 0U || !PowerCtrl_FeedbackInSafeWindow()
+       || s_error.fault_retry_start_ms > g_power_ctrl.fault_retry_interval_ms)
     {
-        if(PowerCtrl_FeedbackInSafeWindow())
-        {
-        //  尝试恢复 后++
-            if(s_error.fault_retry_start_ms++ == g_power_ctrl.fault_retry_interval_ms)
-            {
-                LL_HRTIM_WriteReg(HRTIM1, sCommonRegs.ICR, POWER_CTRL_HRTIM_FAULT_MASK);
-            }
-        }
+        s_error.fault_retry_start_ms = 0U;
     }
-//裁判系统丢失不会触发锁存时间翻倍，恢复即立刻清空错误
+
+    if(s_error.faults.all != 0U && PowerCtrl_FeedbackInSafeWindow())
+    {
+        if(s_error.fault_retry_start_ms++ == g_power_ctrl.fault_retry_interval_ms)
+            LL_HRTIM_WriteReg(HRTIM1, sCommonRegs.ICR, POWER_CTRL_HRTIM_FAULT_MASK);
+    }
+
+    /* 裁判系统底盘输出许可丢失不触发锁存时间翻倍，恢复即立刻清空该位。 */
     if(robot_status.power_management_chassis_output == 0U)
-    {
-        s_error.faults.bits.chassis_output_loss = 1;
-    }
+        s_error.faults.bits.chassis_output_loss = 1U;
 }
 
 void TimerA_1ms_buffer_loop_calculate(void)
@@ -159,6 +153,21 @@ uint32_t PowerCtrl_ReadFaults(void)
     return s_error.faults.all;
 }
 
+uint8_t PowerCtrl_GetRestartCount(void)
+{
+    uint32_t ratio = g_power_ctrl.fault_retry_interval_ms / POWER_CTRL_FAULT_RETRY_INIT_MS;
+    uint8_t restart_count = 0U;
+
+    /* 每次确认恢复后间隔翻倍，右移至初始倍率即可反推出恢复次数。 */
+    while(ratio > 1U)
+    {
+        ratio >>= 1U;
+        restart_count++;
+    }
+
+    return restart_count;
+}
+
 /* ==================== 私有辅助 ==================== */
 
 /**
@@ -168,7 +177,8 @@ uint32_t PowerCtrl_ReadFaults(void)
  */
 static bool PowerCtrl_FeedbackInSafeWindow(void)
 {
-    return adc_fdb.A.V >= BSP_ADC_AWD_V_A_LOW_V
+    return s_error.faults.bits.mcu_overtemp == 0U
+        && adc_fdb.A.V >= BSP_ADC_AWD_V_A_LOW_V
         && adc_fdb.A.V <= BSP_ADC_AWD_V_A_HIGH_V
         && adc_fdb.ref.V >= BSP_ADC_AWD_V_A_LOW_V
         && adc_fdb.ref.V <= BSP_ADC_AWD_V_A_HIGH_V
@@ -268,4 +278,3 @@ static void PowerCtrl_CurrentTargetLimit(void)
 	g_power_ctrl.power_pid.Output = g_power_ctrl.inducotor_current_target_a;
 	
 }
-
