@@ -37,21 +37,20 @@ void PowerCtrl_Init(void)
     /* 三个位置式外环首版均使用零增益。离散系数按 Master 每 16 us 调用定义。 */
     PID_Init(&g_power_ctrl.energy_pid, 20, 
                 0.0f, 0.0f,
-                1.5f, 0.0f, 0.0f,
+                2.0f, 0.0f, 0.0f,
                 0.0f, 0.0f, 0.0f, 0.0f, NONE);
-    PID_Init(&g_power_ctrl.power_pid, POWER_CTRL_CAP_CURRENT_MAX_A,
-                POWER_CTRL_CAP_CURRENT_MAX_A, 0.0f,
+    PID_Init(&g_power_ctrl.power_pid, POWER_CTRL_INDUCTOR_CURRENT_PEAK_A,
+                POWER_CTRL_INDUCTOR_CURRENT_PEAK_A, 0.0f,
                 0.0f, 0.0001f, 0.0f, 0.0f, 
                 0.0f, 0.0f, 0.0f, NONE);
-    PID_Init(&g_power_ctrl.voltage_pid, POWER_CTRL_CAP_CURRENT_MAX_A,
-                POWER_CTRL_CAP_CURRENT_MAX_A, 0.0f,
+    PID_Init(&g_power_ctrl.voltage_pid, POWER_CTRL_INDUCTOR_CURRENT_PEAK_A,
+                POWER_CTRL_INDUCTOR_CURRENT_PEAK_A, 0.0f,
                 0.0f, 0.0f, 0.0f, 0.0f, 
                 0.0f, 0.0f, 0.0f, NONE);
 }
 
 void PowerCtrl_Task(void)
 {
-    // clang-format off
     switch(g_power_ctrl.state)
     {
         case PROTECT_MODE:
@@ -86,7 +85,6 @@ void PowerCtrl_Task(void)
             g_power_ctrl.state = PROTECT_MODE;
         }    break;
     }
-    // clang-format on
 }
 
 
@@ -96,16 +94,16 @@ void PowerCtrl_ServiceFault(void)
     s_error.faults.all = LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
 
     if(adc_fdb.A.V > BSP_ADC_AWD_V_A_HIGH_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE;
+        s_error.faults.bits.chassis_overvoltage = 1;
     else if(adc_fdb.A.V < BSP_ADC_AWD_V_A_LOW_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CHASSIS_UNDERVOLTAGE;
+        s_error.faults.bits.chassis_undervoltage = 1;
     if(adc_fdb.B.V > BSP_ADC_AWD_V_B_HIGH_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CAP_OVERVOLTAGE;
+        s_error.faults.bits.cap_overvoltage = 1;
     else if(adc_fdb.B.V < BSP_ADC_AWD_V_B_LOW_V)
-        s_error.faults.all |= POWER_CTRL_FAULT_CAP_UNDERVOLTAGE;
+        s_error.faults.bits.cap_undervoltage = 1;
 
     //多等待1ms判断是否可以恢复，避免四次均值后的引起捕捉不到某次高峰
-    if((s_error.fault_retry_start_ms == g_power_ctrl.fault_retry_interval_ms + 1) && !s_error.faults.all)
+    if((s_error.fault_retry_start_ms >= g_power_ctrl.fault_retry_interval_ms + 1) && !s_error.faults.all)
     {
         s_error.faults.all = 0U;
         s_error.fault_retry_start_ms = 0U;
@@ -126,6 +124,11 @@ void PowerCtrl_ServiceFault(void)
                 LL_HRTIM_WriteReg(HRTIM1, sCommonRegs.ICR, POWER_CTRL_HRTIM_FAULT_MASK);
             }
         }
+    }
+//裁判系统丢失不会触发锁存时间翻倍，恢复即立刻清空错误
+    if(robot_status.power_management_chassis_output == 0U)
+    {
+        s_error.faults.bits.chassis_output_loss = 1;
     }
 }
 
@@ -230,14 +233,14 @@ static void PowerCtrl_CurrentTargetLimit(void)
 {
     if(adc_fdb.B.V >= POWER_CTRL_CAP_LOW_VOLTAGE_V)
     {
-        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_MAX_A;
-        g_power_ctrl.inductor_current_lower_limit_a = -POWER_CTRL_CAP_CURRENT_MAX_A;
+        g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_INDUCTOR_CURRENT_PEAK_A;
+        g_power_ctrl.inductor_current_lower_limit_a = -POWER_CTRL_INDUCTOR_CURRENT_PEAK_A;
     }
     else if(adc_fdb.B.V > POWER_CTRL_CAP_CURRENT_KNEE_V)
     {
         g_power_ctrl.inductor_current_upper_limit_a = POWER_CTRL_CAP_CURRENT_KNEE_A
             + (adc_fdb.B.V - POWER_CTRL_CAP_CURRENT_KNEE_V)
-                * ((POWER_CTRL_CAP_CURRENT_MAX_A - POWER_CTRL_CAP_CURRENT_KNEE_A)
+                * ((POWER_CTRL_INDUCTOR_CURRENT_PEAK_A - POWER_CTRL_CAP_CURRENT_KNEE_A)
                     / (POWER_CTRL_CAP_LOW_VOLTAGE_V - POWER_CTRL_CAP_CURRENT_KNEE_V));
         g_power_ctrl.inductor_current_lower_limit_a = -g_power_ctrl.inductor_current_upper_limit_a;
     }

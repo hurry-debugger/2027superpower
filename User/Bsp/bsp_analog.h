@@ -52,34 +52,6 @@
 /** @brief B 路电流偏置，单位 A；参考源为 V1.3 的 U7。 */
 #define BSP_ADC_I_B_BIAS_A (-BSP_ADC_I_B_ZERO_V / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
 
-/* ==================== ADC 看门狗阈值 ==================== */
-
-/**
- * @brief 看门狗物理量阈值，电流单位 A，电压单位 V。
- * @details A/ref 并联，共用 A 侧电压保护范围。B 侧下限沿用 2.9 V，
- *          上限和各路电流阈值沿用港科 RM2025 的设置。
- * @note 电压下限填 0.0f 时，比较字段为 0，调试时可关闭对应欠压触发。
- *       实际触发值待上板校验。
- */
-#define BSP_ADC_AWD_I_A_LOW_A (-20.0f)
-#define BSP_ADC_AWD_I_A_HIGH_A (20.0f)
-#define BSP_ADC_AWD_I_BAT_LOW_A (-16.5f)
-#define BSP_ADC_AWD_I_BAT_HIGH_A (16.5f)
-#define BSP_ADC_AWD_V_A_HIGH_V (29.0f)
-#define BSP_ADC_AWD_I_B_LOW_A (-25.5f)
-#define BSP_ADC_AWD_I_B_HIGH_A (25.5f)
-#define BSP_ADC_AWD_V_B_HIGH_V (29.0f)
-
-#ifdef CLOSE_LOOP
-	#define BSP_ADC_AWD_V_B_LOW_V (3.0f)
-	#define BSP_ADC_AWD_V_A_LOW_V (15.0f)
-#endif
-
-#ifdef OPEN_LOOP
-	#define BSP_ADC_AWD_V_B_LOW_V (0.0f)
-	#define BSP_ADC_AWD_V_A_LOW_V (0.0f)
-#endif
-
 /** @brief 按 STM32G4 的比较位宽，每个 AWD1 字段码对应 1 个 12 位原码。 */
 #define BSP_ADC_AWD1_COUNTS_PER_CODE (1U)
 /** @brief 按 STM32G4 的比较位宽，AWD2/3 忽略低 4 位，每个字段码对应 16 个原码。 */
@@ -108,17 +80,6 @@
  */
 #define BSP_ADC_AWD_UPPER_CODE(raw_count, counts_per_code) \
     (((uint32_t)(raw_count) - ((counts_per_code) - 1U)) / (counts_per_code))
-
-/**
- * @brief 判断原码在 ADC 量程内，且取整后的窗口至少包含一组完整比较码。
- * @note 先检查原码范围，再转换为无符号字段码。
- */
-#define BSP_ADC_AWD_WINDOW_VALID(low_raw_count, high_raw_count, counts_per_code) \
-    (((low_raw_count) >= 0.0f) && ((low_raw_count) <= (high_raw_count)) \
-     && ((high_raw_count) >= ((counts_per_code) - 1U)) \
-     && ((high_raw_count) <= ADC_FULL_SCALE_COUNT) \
-     && (BSP_ADC_AWD_LOWER_CODE((low_raw_count), (counts_per_code)) \
-         <= BSaP_ADC_AWD_UPPER_CODE((high_raw_count), (counts_per_code))))
 
 /** @brief 理论原码，A 侧和电池电流取 U6 零点，B 侧电流取 U7 零点。 */
 #define BSP_ADC_AWD_I_A_LOW_RAW_COUNT \
@@ -169,12 +130,10 @@
  * @note 本板斜坡补偿效果待上板验证。
  */
 #define BSP_ANALOG_DAC_STEP_CODE (360U)
-/** @brief 电感半纹波偏置，单位 A；首版沿用港科 RM2025 上场版的 1.25 A，待本板实测。 */
-#define BSP_ANALOG_DAC_HALF_RIPPLE_A (1.85f)
 
-/* ==================== 旧五路兼容参数 ==================== */
+/* ==================== 五路兼容参数 ==================== */
 
-/** @note 旧五路的分压、零点及量程兼容旧校准和保护接口。 */
+/** @note 五路的分压、零点及量程兼容旧校准和保护接口。 */
 
 /** @brief 底盘分压还原倍数，无量纲；R26=13 kΩ、R34=1 kΩ。 */
 #define ADC_V_CHASSIS_DIVIDER_RATIO (14.0f)

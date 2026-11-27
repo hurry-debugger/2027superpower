@@ -136,7 +136,6 @@ uint8_t judge_get_data(uint8_t *data, uint16_t data_len)
             case ID_custom_info:                  judge_copy_if_length(&custom_info, &data[index + 7U], frame_header.data_length, LEN_custom_info); break;
             default: break;
         }
-        // clang-format on
 
         index = (uint16_t)(index + total_data_length);
     }

@@ -13,22 +13,6 @@
 #define POWER_CTRL_HRTIM_FAULT_MASK \
     (HRTIM_FLAG_FLT1 | HRTIM_FLAG_FLT2 | HRTIM_FLAG_FLT3 | HRTIM_FLAG_FLT4 | HRTIM_FLAG_FLT5)
 
-/** @brief ADC1 的 A 侧电流、电池入口电流和 A 侧电压看门狗标志。 */
-#define POWER_CTRL_ADC1_AWD_MASK (ADC_FLAG_AWD1 | ADC_FLAG_AWD2 | ADC_FLAG_AWD3)
-/** @brief ADC2 的 B 侧电流和电压看门狗标志。 */
-#define POWER_CTRL_ADC2_AWD_MASK (ADC_FLAG_AWD1 | ADC_FLAG_AWD2)
-/** @brief 四种调制模式间最多连续切换三次，用于输出关闭时完成模式选择。 */
-#define POWER_CTRL_HRTIM_MODE_MAX_TRANSITIONS (3U)
-
-/** @brief 软件锁存中 A 端过压明细位，反馈超过 AWD 标称上界。 */
-#define POWER_CTRL_FAULT_CHASSIS_OVERVOLTAGE (1U << 5)
-/** @brief 软件锁存中 A 端欠压明细位，反馈低于 AWD 标称下界。 */
-#define POWER_CTRL_FAULT_CHASSIS_UNDERVOLTAGE (1U << 6)
-/** @brief 软件锁存中 B 端过压明细位，反馈超过 AWD 标称上界。 */
-#define POWER_CTRL_FAULT_CAP_OVERVOLTAGE (1U << 7)
-/** @brief 软件锁存中 B 端欠压明细位，反馈低于 AWD 标称下界。 */
-#define POWER_CTRL_FAULT_CAP_UNDERVOLTAGE (1U << 8)
-
 /**
  * @brief HRTIM 原始故障、电压越界明细及恢复计时；用户指定类型名为 error_t。
  * @note 低五位保留原始 Fault，方向明细不能替代原始锁存；位域布局依赖目标编译器。
@@ -49,7 +33,8 @@ typedef struct
             uint32_t chassis_undervoltage : 1; /**< bit 6，A 侧反馈低于共用下界。 */
             uint32_t cap_overvoltage : 1; /**< bit 7，B 侧反馈超过 AWD 标称上界。 */
             uint32_t cap_undervoltage : 1; /**< bit 8，B 侧反馈低于下界。 */
-            uint32_t reserved : 23; /**< bit 9～31，未使用。 */
+            uint32_t chassis_output_loss : 1; /**< bit 9，裁判系统丢失。 */
+            uint32_t reserved : 22; /**< bit 10～31，未使用。 */
         } bits;
     } faults;
     uint32_t fault_retry_start_ms; /**< 首次锁存或最近一次恢复尝试的 tick，单位 ms。 */
