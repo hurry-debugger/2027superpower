@@ -5,25 +5,18 @@
 #ifndef SUPERPOWER_BSP_ANALOG_H
 #define SUPERPOWER_BSP_ANALOG_H
 
-#include <stdint.h>
-#include "power_ctrl_config.h"
-/* ==================== OPAMP 启动 ==================== */
+/* ==================== OPAMP 与双 ADC 采样 ==================== */
 
-/** @brief OPAMP 起动等待时间，单位 ms，覆盖 LL_OPAMP_DELAY_STARTUP_US 的 6 us。 */
+/** @brief OPAMP 启动等待时间，单位 ms，覆盖 LL_OPAMP_DELAY_STARTUP_US 的 6 us。 */
 #define BSP_ADC_OPAMP_SETTLE_MS (1U)
-
-/* ==================== 双 ADC 采样 ==================== */
-
 /** @brief 每次 TRG1 触发完成四组同步 Rank，来源为 CubeMX 的 ADC1/2 配置。 */
 #define BSP_ADC_RANK_COUNT (4U)
 /** @brief 每次 Master 重复事件对应四轮 TRG1 扫描。 */
 #define BSP_ADC_SCAN_COUNT (4U)
 /** @brief 循环 DMA 长度，单位为 32 位打包字。 */
 #define BSP_ADC_DMA_WORD_COUNT (BSP_ADC_SCAN_COUNT * BSP_ADC_RANK_COUNT)
-/** @brief 四轮平均的编译期系数，无量纲。 */
-#define BSP_ADC_SCAN_RECIPROCAL (1.0f / BSP_ADC_SCAN_COUNT)
 
-/* ==================== 当前反馈换算 ==================== */
+/* ==================== 模拟前端参数与反馈换算 ==================== */
 
 /** @brief ADC 的 VREF+ 标称电压，单位 V；原理图 V1.3 U4 REF3033，实测值待标定。 */
 #define ADC_REFERENCE_V (3.3f)
@@ -33,95 +26,35 @@
 #define ADC_CURRENT_SENSE_GAIN (20.0f)
 /** @brief V1.3 R5/R6/R23 电流采样电阻，单位 Ω。 */
 #define ADC_CURRENT_SHUNT_OHM (0.003f)
-/** @brief 电池电流通道零电流输出，单位 V；V1.3 U6 参考的一半，独立于 ADC 的 U4 参考。 */
-#define ADC_I_BAT_ZERO_V (1.65f)
-/** @brief B 路零电流输出，单位 V；V1.3 的 U7 REF3033 的一半，实测待标定。 */
-#define BSP_ADC_I_B_ZERO_V (1.65f)
+/** @brief 电流检测模拟前端总灵敏度，单位 V/A；由 INA240A1 增益与采样电阻推导。 */
+#define BSP_ADC_CURRENT_GAIN_V_PER_A (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM)
 /** @brief 三路电压的分压还原倍数，无量纲；V1.3 模拟采样页为 33 kΩ / 2.2 kΩ。 */
 #define BSP_ADC_VOLTAGE_DIVIDER_RATIO (16.0f)
+/** @brief A 路和电池电流零电流输出，单位 V；V1.3 U6 REF3033 的一半，实测待标定。 */
+#define BSP_ADC_I_A_BAT_ZERO_V (1.65f)
+/** @brief B 路零电流输出，单位 V；V1.3 U7 REF3033 的一半，实测待标定。 */
+#define BSP_ADC_I_B_ZERO_V (1.65f)
 
 /** @brief 四轮电压计数和转换系数，单位 V/计数。 */
 #define BSP_ADC_V_PER_SUM_COUNT \
-    (BSP_ADC_SCAN_RECIPROCAL * ADC_REFERENCE_V * BSP_ADC_VOLTAGE_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 四轮电流计数和转换系数，单位 A/计数。 */ 
+    (ADC_REFERENCE_V * BSP_ADC_VOLTAGE_DIVIDER_RATIO / (BSP_ADC_SCAN_COUNT * ADC_FULL_SCALE_COUNT))
+/** @brief 四轮电流计数和转换系数，单位 A/计数。 */
 #define BSP_ADC_A_PER_SUM_COUNT \
-    (BSP_ADC_SCAN_RECIPROCAL * ADC_REFERENCE_V / \
-     (ADC_FULL_SCALE_COUNT * ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
+    (ADC_REFERENCE_V \
+     / (BSP_ADC_SCAN_COUNT * ADC_FULL_SCALE_COUNT * BSP_ADC_CURRENT_GAIN_V_PER_A))
 /** @brief A 路和电池电流偏置，单位 A；两路共享 V1.3 的 U6 参考源。 */
-#define BSP_ADC_I_A_I_BAT_BIAS_A (-ADC_I_BAT_ZERO_V / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
+#define BSP_ADC_I_A_BAT_BIAS_A (-BSP_ADC_I_A_BAT_ZERO_V / BSP_ADC_CURRENT_GAIN_V_PER_A)
 /** @brief B 路电流偏置，单位 A；参考源为 V1.3 的 U7。 */
-#define BSP_ADC_I_B_BIAS_A (-BSP_ADC_I_B_ZERO_V / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
+#define BSP_ADC_I_B_BIAS_A (-BSP_ADC_I_B_ZERO_V / BSP_ADC_CURRENT_GAIN_V_PER_A)
+
+/* ==================== ADC 看门狗比较位宽 ==================== */
 
 /** @brief 按 STM32G4 的比较位宽，每个 AWD1 字段码对应 1 个 12 位原码。 */
 #define BSP_ADC_AWD1_COUNTS_PER_CODE (1U)
 /** @brief 按 STM32G4 的比较位宽，AWD2/3 忽略低 4 位，每个字段码对应 16 个原码。 */
 #define BSP_ADC_AWD23_COUNTS_PER_CODE (16U)
 
-/** @brief 按本板 V1.3 标称采样参数，将电流 A 和通道零点 V 换算为理论原码。 */
-#define BSP_ADC_AWD_I_TO_RAW_COUNT(current_a, zero_v) \
-    (((zero_v) + (current_a) * (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM)) \
-     * (ADC_FULL_SCALE_COUNT / ADC_REFERENCE_V))
-/** @brief 按本板 V1.3 分压及 ADC 参考电压，将输入电压 V 换算为理论原码。 */
-#define BSP_ADC_AWD_V_TO_RAW_COUNT(voltage_v) \
-    ((voltage_v) * (ADC_FULL_SCALE_COUNT / (ADC_REFERENCE_V * BSP_ADC_VOLTAGE_DIVIDER_RATIO)))
-
-/**
- * @brief 下限向上取整，使字段对应的首个原码不低于理论下限。
- * @pre raw_count 是 0～ADC_FULL_SCALE_COUNT 内的常量，counts_per_code 为 1 或 16。
- */
-#define BSP_ADC_AWD_LOWER_CODE(raw_count, counts_per_code) \
-    (((uint32_t)(raw_count) + ((raw_count) > (uint32_t)(raw_count)) + \
-      ((counts_per_code) - 1U)) / (counts_per_code))
-
-/**
- * @brief 上限向下取整，使字段对应的最后一个原码不高于理论上限。
- * @pre raw_count 是 counts_per_code - 1 到 ADC_FULL_SCALE_COUNT 内的常量，
- *      counts_per_code 为 1 或 16。
- */
-#define BSP_ADC_AWD_UPPER_CODE(raw_count, counts_per_code) \
-    (((uint32_t)(raw_count) - ((counts_per_code) - 1U)) / (counts_per_code))
-
-/** @brief 理论原码，A 侧和电池电流取 U6 零点，B 侧电流取 U7 零点。 */
-#define BSP_ADC_AWD_I_A_LOW_RAW_COUNT \
-    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_A_LOW_A, ADC_I_BAT_ZERO_V)
-#define BSP_ADC_AWD_I_A_HIGH_RAW_COUNT \
-    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_A_HIGH_A, ADC_I_BAT_ZERO_V)
-#define BSP_ADC_AWD_I_BAT_LOW_RAW_COUNT \
-    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_BAT_LOW_A, ADC_I_BAT_ZERO_V)
-#define BSP_ADC_AWD_I_BAT_HIGH_RAW_COUNT \
-    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_BAT_HIGH_A, ADC_I_BAT_ZERO_V)
-#define BSP_ADC_AWD_V_A_LOW_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_A_LOW_V)
-#define BSP_ADC_AWD_V_A_HIGH_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_A_HIGH_V)
-#define BSP_ADC_AWD_I_B_LOW_RAW_COUNT \
-    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_B_LOW_A, BSP_ADC_I_B_ZERO_V)
-#define BSP_ADC_AWD_I_B_HIGH_RAW_COUNT \
-    BSP_ADC_AWD_I_TO_RAW_COUNT(BSP_ADC_AWD_I_B_HIGH_A, BSP_ADC_I_B_ZERO_V)
-#define BSP_ADC_AWD_V_B_LOW_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_B_LOW_V)
-#define BSP_ADC_AWD_V_B_HIGH_RAW_COUNT BSP_ADC_AWD_V_TO_RAW_COUNT(BSP_ADC_AWD_V_B_HIGH_V)
-
-/** @brief 各通道写入 ADC_TR1/2/3 的比较字段值，左右边界包含在允许范围内。 */
-#define BSP_ADC_AWD_I_A_LOW_CODE \
-    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_I_A_LOW_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_I_A_HIGH_CODE \
-    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_I_A_HIGH_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_I_BAT_LOW_CODE \
-    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_I_BAT_LOW_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_I_BAT_HIGH_CODE \
-    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_I_BAT_HIGH_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_V_A_LOW_CODE \
-    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_V_A_LOW_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_V_A_HIGH_CODE \
-    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_V_A_HIGH_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_I_B_LOW_CODE \
-    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_I_B_LOW_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_I_B_HIGH_CODE \
-    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_I_B_HIGH_RAW_COUNT, BSP_ADC_AWD1_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_V_B_LOW_CODE \
-    BSP_ADC_AWD_LOWER_CODE(BSP_ADC_AWD_V_B_LOW_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
-#define BSP_ADC_AWD_V_B_HIGH_CODE \
-    BSP_ADC_AWD_UPPER_CODE(BSP_ADC_AWD_V_B_HIGH_RAW_COUNT, BSP_ADC_AWD23_COUNTS_PER_CODE)
-
-/* ==================== DAC 锯齿 ==================== */
+/* ==================== DAC 锯齿参数 ==================== */
 
 /** @brief DAC 12 位码数，单位为计数；来源为 STM32G4 参考手册。 */
 #define BSP_ANALOG_DAC_CODE_COUNT (4096U)
@@ -130,60 +63,6 @@
  * @note 本板斜坡补偿效果待上板验证。
  */
 #define BSP_ANALOG_DAC_STEP_CODE (360U)
-
-/* ==================== 五路兼容参数 ==================== */
-
-/** @note 五路的分压、零点及量程兼容旧校准和保护接口。 */
-
-/** @brief 底盘分压还原倍数，无量纲；R26=13 kΩ、R34=1 kΩ。 */
-#define ADC_V_CHASSIS_DIVIDER_RATIO (14.0f)
-/** @brief 电池分压还原倍数，无量纲；R38=10 kΩ、R46=1 kΩ。 */
-#define ADC_V_BAT_DIVIDER_RATIO (11.0f)
-/** @brief 电容分压还原倍数，无量纲；R27=10 kΩ、R71=1 kΩ。 */
-#define ADC_V_CAP_DIVIDER_RATIO (11.0f)
-/** @brief 底盘电流通道零电流输出，单位 V；标称值，后续可独立标定。 */
-#define ADC_I_CHASSIS_ZERO_V (1.65f)
-
-/** @brief 底盘电压转换系数，单位 V/计数。 */
-#define ADC_V_CHASSIS_RATIO \
-    (ADC_REFERENCE_V * ADC_V_CHASSIS_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 电池电压转换系数，单位 V/计数。 */
-#define ADC_V_BAT_RATIO (ADC_REFERENCE_V * ADC_V_BAT_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 电容电压转换系数，单位 V/计数。 */
-#define ADC_V_CAP_RATIO (ADC_REFERENCE_V * ADC_V_CAP_DIVIDER_RATIO / ADC_FULL_SCALE_COUNT)
-/** @brief 电池电流转换系数，单位 A/计数。 */
-#define ADC_I_BAT_RATIO \
-    (ADC_REFERENCE_V / ADC_FULL_SCALE_COUNT / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
-/** @brief 底盘电流转换系数，单位 A/计数。 */
-#define ADC_I_CHASSIS_RATIO \
-    (ADC_REFERENCE_V / ADC_FULL_SCALE_COUNT / (ADC_CURRENT_SENSE_GAIN * ADC_CURRENT_SHUNT_OHM))
-
-/** @brief 底盘电压零点，单位计数；标称无偏置。 */
-#define ADC_V_CHASSIS_OFFSET_COUNT (0.0f)
-/** @brief 电池电压零点，单位计数；标称无偏置。 */
-#define ADC_V_BAT_OFFSET_COUNT (0.0f)
-/** @brief 电容电压零点，单位计数；标称无偏置。 */
-#define ADC_V_CAP_OFFSET_COUNT (0.0f)
-/** @brief 电池电流零点，单位计数；标称 2047.5，不提前取整。 */
-#define ADC_I_BAT_OFFSET_COUNT (ADC_I_BAT_ZERO_V * ADC_FULL_SCALE_COUNT / ADC_REFERENCE_V)
-/** @brief 底盘电流零点，单位计数；允许与电池通道分别标定。 */
-#define ADC_I_CHASSIS_OFFSET_COUNT (ADC_I_CHASSIS_ZERO_V * ADC_FULL_SCALE_COUNT / ADC_REFERENCE_V)
-
-/** @brief 底盘电压 ADC 理论量程上限，单位 V；由分压比和 ADC 满量程推导。 */
-#define ADC_V_CHASSIS_MAX_V ((ADC_FULL_SCALE_COUNT - ADC_V_CHASSIS_OFFSET_COUNT) * ADC_V_CHASSIS_RATIO)
-/** @brief 电池电压 ADC 理论量程上限，单位 V；由分压比和 ADC 满量程推导。 */
-#define ADC_V_BAT_MAX_V ((ADC_FULL_SCALE_COUNT - ADC_V_BAT_OFFSET_COUNT) * ADC_V_BAT_RATIO)
-/** @brief 电容电压 ADC 理论量程上限，单位 V；由分压比和 ADC 满量程推导。 */
-#define ADC_V_CAP_MAX_V ((ADC_FULL_SCALE_COUNT - ADC_V_CAP_OFFSET_COUNT) * ADC_V_CAP_RATIO)
-/** @brief 电池电流 ADC 理论量程下限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_BAT_MIN_A (-ADC_I_BAT_OFFSET_COUNT * ADC_I_BAT_RATIO)
-/** @brief 电池电流 ADC 理论量程上限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_BAT_MAX_A ((ADC_FULL_SCALE_COUNT - ADC_I_BAT_OFFSET_COUNT) * ADC_I_BAT_RATIO)
-/** @brief 底盘电流 ADC 理论量程下限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_CHASSIS_MIN_A (-ADC_I_CHASSIS_OFFSET_COUNT * ADC_I_CHASSIS_RATIO)
-/** @brief 底盘电流 ADC 理论量程上限，单位 A；由零点、采样电阻和放大倍数推导。 */
-#define ADC_I_CHASSIS_MAX_A \
-    ((ADC_FULL_SCALE_COUNT - ADC_I_CHASSIS_OFFSET_COUNT) * ADC_I_CHASSIS_RATIO)
 
 /* ==================== 类型与接口 ==================== */
 

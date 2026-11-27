@@ -19,7 +19,7 @@
 - [硬件与 CubeMX 待办](docs/hardware.md)：按原理图核对尚未配置或有误的项目。
 - [当前交接](docs/handoff.md)：本轮实施、检查结果及下一步入口。
 - [架构与运行边界](docs/architecture.md)：区分编译登记和运行接入。
-- [代码规范](docs/coding_style.md)、[协作入口](AGENTS.md)、[协作流程](docs/ai_workflow.md)。
+- [协作入口](AGENTS.md)：本工程统一使用全局 Skill `stm32-embedded-dev`，并记录本板特有边界。
 - [验证方法与结果](docs/testing.md)、[长期决定](docs/decisions.md)。
 - [User 来源说明](User/README.md)：开头为 27 年状态提示，其余保留 26 年原说明。
 

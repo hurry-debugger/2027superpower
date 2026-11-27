@@ -9,9 +9,11 @@
 #include "bsp_dwt.h"
 #include "bsp_hrtim.h"
 #include "bsp_usart.h"
+#include "fdcan.h"
 #include "hrtim.h"
 #include "power_ctrl.h"
 #include "power_ctrl_config.h"
+#include "prot_supercap.h"
 #include "data_scope.h"
 
 void SuperPower_Init(void)
@@ -22,6 +24,11 @@ void SuperPower_Init(void)
     BspAnalog_Init();
     PowerCtrl_Init();
     USER_UART_Init();
+
+    if(HAL_FDCAN_Start(&hfdcan2) != HAL_OK)
+    {
+        Error_Handler();
+    }
 
     if(HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK)
     {
@@ -71,6 +78,7 @@ void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t tim
 
             PowerCtrl_ServiceFault();
             TimerA_1ms_buffer_loop_calculate();
+            SupercapCan_Send1ms();
             DataWave(&huart1);
 
             Bsp_DWT_Stop(3);

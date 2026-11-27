@@ -14,27 +14,25 @@
     (HRTIM_FLAG_FLT1 | HRTIM_FLAG_FLT2 | HRTIM_FLAG_FLT3 | HRTIM_FLAG_FLT4 | HRTIM_FLAG_FLT5)
 
 /**
- * @brief HRTIM 原始故障、电压越界明细及恢复计时；用户指定类型名为 error_t。
- * @note 低五位保留原始 Fault，方向明细不能替代原始锁存；位域布局依赖目标编译器。
+ * @brief 8 位软件故障字及恢复计时；用户指定类型名为 error_t。
+ * @note FLT3/FLT5 原始锁存由 Timer A 单独检查，不占用故障字；位域布局依赖目标编译器。
  */
 typedef struct
 {
     union
     {
-        volatile uint32_t all; /**< Timer A 发布，低五位为 FLT1～FLT5，bit 5～8 为电压明细。 */
+        volatile uint32_t all; /**< Timer A 发布，bit 0～7 为软件故障位，bit 8～31 保留为零。 */
         struct
         {
             uint32_t chassis_overcurrent : 1; /**< bit 0，FLT1，A 侧过流。 */
             uint32_t battery_overcurrent : 1; /**< bit 1，FLT2，电池入口过流。 */
-            uint32_t chassis_voltage_fault : 1; /**< bit 2，FLT3，A/ref 电压越界，方向可能未知。 */
-            uint32_t cap_overcurrent : 1; /**< bit 3，FLT4，B 侧过流。 */
-            uint32_t cap_voltage_fault : 1; /**< bit 4，FLT5，B 侧电压越界，方向可能未知。 */
-            uint32_t chassis_overvoltage : 1; /**< bit 5，A 侧反馈超过上界。 */
-            uint32_t chassis_undervoltage : 1; /**< bit 6，A 侧反馈低于共用下界。 */
-            uint32_t cap_overvoltage : 1; /**< bit 7，B 侧反馈超过 AWD 标称上界。 */
-            uint32_t cap_undervoltage : 1; /**< bit 8，B 侧反馈低于下界。 */
-            uint32_t chassis_output_loss : 1; /**< bit 9，裁判系统丢失。 */
-            uint32_t reserved : 22; /**< bit 10～31，未使用。 */
+            uint32_t cap_overcurrent : 1; /**< bit 2，FLT4，B 侧过流。 */
+            uint32_t chassis_overvoltage : 1; /**< bit 3，A 侧反馈超过上界。 */
+            uint32_t chassis_undervoltage : 1; /**< bit 4，A 侧反馈低于共用下界。 */
+            uint32_t cap_overvoltage : 1; /**< bit 5，B 侧反馈超过 AWD 标称上界。 */
+            uint32_t cap_undervoltage : 1; /**< bit 6，B 侧反馈低于下界。 */
+            uint32_t chassis_output_loss : 1; /**< bit 7，底盘输出许可丢失。 */
+            uint32_t reserved : 24; /**< bit 8～31，未使用。 */
         } bits;
     } faults;
     uint32_t fault_retry_start_ms; /**< 首次锁存或最近一次恢复尝试的 tick，单位 ms。 */
@@ -100,8 +98,8 @@ void PowerCtrl_ServiceFault(void);
  */
 void TimerA_1ms_buffer_loop_calculate(void);
 /**
- * @brief 读取原始 HRTIM 故障和电压越界明细的完整软件锁存。
- * @return 低五位与 FLT1～FLT5 对齐，bit 5～8 由 POWER_CTRL_FAULT_* 掩码解释，零表示无锁存。
+ * @brief 读取 Timer A 发布的软件故障字。
+ * @return bit 0～7 按 faults.bits 排列，bit 8～31 为零；零不代表硬件无锁存。
  */
 uint32_t PowerCtrl_ReadFaults(void);
 

@@ -60,14 +60,14 @@ const AdcCalibrationRecord_t g_adc_calibration_records[SUPERCAP_COUNT] =
 
 /* ==================== 私有数据 ==================== */
 
-/** @brief 默认增益为 ratio、偏置为 -offset_count * ratio；启动拟合成功后逐通道替换，运行后只读。 */
+/** @brief 默认增益与物理量偏置；启动拟合成功后逐通道替换，运行后只读。 */
 static AdcCalibrationCoeff_t s_coefficients[ADC_CHANNEL_COUNT] =
 {
-    [V_CHASSIS] = {ADC_V_CHASSIS_RATIO, -ADC_V_CHASSIS_OFFSET_COUNT * ADC_V_CHASSIS_RATIO},
-    [V_BAT] = {ADC_V_BAT_RATIO, -ADC_V_BAT_OFFSET_COUNT * ADC_V_BAT_RATIO},
-    [I_BAT] = {ADC_I_BAT_RATIO, -ADC_I_BAT_OFFSET_COUNT * ADC_I_BAT_RATIO},
-    [I_CHASSIS] = {ADC_I_CHASSIS_RATIO, -ADC_I_CHASSIS_OFFSET_COUNT * ADC_I_CHASSIS_RATIO},
-    [V_CAP] = {ADC_V_CAP_RATIO, -ADC_V_CAP_OFFSET_COUNT * ADC_V_CAP_RATIO}
+    [V_CHASSIS] = {ADC_CAL_V_RATIO(ADC_CAL_V_CHASSIS_DIVIDER_RATIO), 0.0f},
+    [V_BAT] = {ADC_CAL_V_RATIO(ADC_CAL_V_BAT_DIVIDER_RATIO), 0.0f},
+    [I_BAT] = {ADC_CAL_I_RATIO, ADC_CAL_I_BIAS_A},
+    [I_CHASSIS] = {ADC_CAL_I_RATIO, ADC_CAL_I_BIAS_A},
+    [V_CAP] = {ADC_CAL_V_RATIO(ADC_CAL_V_CAP_DIVIDER_RATIO), 0.0f}
 };
 
 /** @brief 校准实测值理论下限 V/A，由 ADC 模拟链参数推导。 */
@@ -75,19 +75,19 @@ static const float s_value_minimums[ADC_CHANNEL_COUNT] =
 {
     [V_CHASSIS] = 0.0f,
     [V_BAT] = 0.0f,
-    [I_BAT] = ADC_I_BAT_MIN_A,
-    [I_CHASSIS] = ADC_I_CHASSIS_MIN_A,
+    [I_BAT] = ADC_CAL_I_BIAS_A,
+    [I_CHASSIS] = ADC_CAL_I_BIAS_A,
     [V_CAP] = 0.0f
 };
 
 /** @brief 校准实测值理论上限 V/A，由 ADC 模拟链参数推导。 */
 static const float s_value_maximums[ADC_CHANNEL_COUNT] =
 {
-    [V_CHASSIS] = ADC_V_CHASSIS_MAX_V,
-    [V_BAT] = ADC_V_BAT_MAX_V,
-    [I_BAT] = ADC_I_BAT_MAX_A,
-    [I_CHASSIS] = ADC_I_CHASSIS_MAX_A,
-    [V_CAP] = ADC_V_CAP_MAX_V
+    [V_CHASSIS] = ADC_CAL_V_MAX_V(ADC_CAL_V_CHASSIS_DIVIDER_RATIO),
+    [V_BAT] = ADC_CAL_V_MAX_V(ADC_CAL_V_BAT_DIVIDER_RATIO),
+    [I_BAT] = ADC_CAL_I_MAX_A,
+    [I_CHASSIS] = ADC_CAL_I_MAX_A,
+    [V_CAP] = ADC_CAL_V_MAX_V(ADC_CAL_V_CAP_DIVIDER_RATIO)
 };
 
 /* ==================== 公共接口实现 ==================== */

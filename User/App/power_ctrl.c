@@ -90,8 +90,16 @@ void PowerCtrl_Task(void)
 
 void PowerCtrl_ServiceFault(void)
 {
-    //不设置ICR清除ISR,ISR就是长期状态，哪怕只发生一次
-    s_error.faults.all = LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
+    /* 保留本次轮询的硬件锁存快照，未上报的 FLT3/FLT5 仍参与恢复判定。 */
+    uint32_t hrtim_isr = LL_HRTIM_ReadReg(HRTIM1, sCommonRegs.ISR) & POWER_CTRL_HRTIM_FAULT_MASK;
+
+    s_error.faults.all = 0U;
+    if((hrtim_isr & HRTIM_FLAG_FLT1) != 0U)
+        s_error.faults.bits.chassis_overcurrent = 1U;
+    if((hrtim_isr & HRTIM_FLAG_FLT2) != 0U)
+        s_error.faults.bits.battery_overcurrent = 1U;
+    if((hrtim_isr & HRTIM_FLAG_FLT4) != 0U)
+        s_error.faults.bits.cap_overcurrent = 1U;
 
     if(adc_fdb.A.V > BSP_ADC_AWD_V_A_HIGH_V)
         s_error.faults.bits.chassis_overvoltage = 1;
@@ -103,7 +111,8 @@ void PowerCtrl_ServiceFault(void)
         s_error.faults.bits.cap_undervoltage = 1;
 
     //多等待1ms判断是否可以恢复，避免四次均值后的引起捕捉不到某次高峰
-    if((s_error.fault_retry_start_ms >= g_power_ctrl.fault_retry_interval_ms + 1) && !s_error.faults.all)
+    if((s_error.fault_retry_start_ms >= g_power_ctrl.fault_retry_interval_ms + 1)
+       && s_error.faults.all == 0U && hrtim_isr == 0U)
     {
         s_error.faults.all = 0U;
         s_error.fault_retry_start_ms = 0U;
@@ -111,10 +120,11 @@ void PowerCtrl_ServiceFault(void)
         g_power_ctrl.fault_retry_interval_ms *= 2;
     }
 //                                  初次恢复正常的时候开始计算时间
-    if(s_error.faults.all == 0U || !PowerCtrl_FeedbackInSafeWindow() || s_error.fault_retry_start_ms > g_power_ctrl.fault_retry_interval_ms)
+    if((s_error.faults.all == 0U && hrtim_isr == 0U) || !PowerCtrl_FeedbackInSafeWindow()
+       || s_error.fault_retry_start_ms > g_power_ctrl.fault_retry_interval_ms)
         s_error.fault_retry_start_ms = 0;
 
-    if(s_error.faults.all != 0U)
+    if(s_error.faults.all != 0U || hrtim_isr != 0U)
     {
         if(PowerCtrl_FeedbackInSafeWindow())
         {

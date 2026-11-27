@@ -28,13 +28,35 @@ extern "C"
 #error ADC_CAL_POINT_COUNT_must_be_at_least_two
 #endif
 
+/* ==================== 旧五路校准默认参数 ==================== */
+
+/** @brief 旧五路校准默认分压还原倍数，无量纲；底盘 13 kΩ/1 kΩ，电池与电容 10 kΩ/1 kΩ。 */
+#define ADC_CAL_V_CHASSIS_DIVIDER_RATIO (14.0f)
+#define ADC_CAL_V_BAT_DIVIDER_RATIO (11.0f)
+#define ADC_CAL_V_CAP_DIVIDER_RATIO (11.0f)
+/** @brief 旧五路校准默认电流零点输出，单位 V；待按新板统一迁移。 */
+#define ADC_CAL_I_ZERO_V (1.65f)
+
+/** @brief 按分压还原倍数推导单次采样电压转换系数，单位 V/计数。 */
+#define ADC_CAL_V_RATIO(divider_ratio) \
+    (ADC_REFERENCE_V * (divider_ratio) / ADC_FULL_SCALE_COUNT)
+/** @brief 按分压还原倍数推导电压理论量程上限，单位 V。 */
+#define ADC_CAL_V_MAX_V(divider_ratio) (ADC_REFERENCE_V * (divider_ratio))
+/** @brief 单次采样电流转换系数，单位 A/计数。 */
+#define ADC_CAL_I_RATIO \
+    (ADC_REFERENCE_V / (ADC_FULL_SCALE_COUNT * BSP_ADC_CURRENT_GAIN_V_PER_A))
+/** @brief 电流通道默认偏置及理论量程下限，单位 A。 */
+#define ADC_CAL_I_BIAS_A (-ADC_CAL_I_ZERO_V / BSP_ADC_CURRENT_GAIN_V_PER_A)
+/** @brief 电流通道理论量程上限，单位 A。 */
+#define ADC_CAL_I_MAX_A ((ADC_REFERENCE_V - ADC_CAL_I_ZERO_V) / BSP_ADC_CURRENT_GAIN_V_PER_A)
+
 /** @brief 记录下标即超电 ID；0 为未识别保留槽位，有效板卡从 1 开始。 */
 typedef enum
 {
     SUPERCAP_ID_UNKNOWN = 0, /**< 未识别；对应保留槽位，不参与匹配或校准。 */
     SUPERCAP_ID_01 = 1,      /**< 第一个有效记录槽位，当前 UID 和采集点待填写。 */
-    SUPERCAP_ID_02 = 2,     
-    SUPERCAP_COUNT          /**< 数组槽位数，含 0 号保留槽位；新增 ID 放在它之前。 */
+    SUPERCAP_ID_02 = 2,
+    SUPERCAP_COUNT           /**< 数组槽位数，含 0 号保留槽位；新增 ID 放在它之前。 */
 } SupercapId_e;
 
 /**
